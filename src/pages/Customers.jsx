@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { supabase } from '../supabase';
 import { CustomerForm, Empty, ErrorBox, Loading, Modal, Tags } from '../components';
-import { fmtDate, invalidateCustomers, loadCustomers } from '../utils';
+import { fetchAll, fmtDate, inr, invalidateCustomers, loadCustomers } from '../utils';
 import ImportCustomers from './ImportCustomers';
 import ImportOldCrm from './ImportOldCrm';
 
@@ -12,8 +13,23 @@ export default function Customers({ user, openCustomer }) {
   const [err, setErr] = useState(null);
   const [notice, setNotice] = useState('');
   const [tick, setTick] = useState(0);
+  const [stats, setStats] = useState({});
+  const [sort, setSort] = useState('name');
 
-  useEffect(() => { invalidateCustomers(); loadCustomers().then(setList).catch(setErr); }, [tick]);
+  useEffect(() => {
+    invalidateCustomers();
+    loadCustomers().then(setList).catch(setErr);
+    Promise.all([
+      fetchAll(() => supabase.from('bills').select('customer_id,amount')),
+      fetchAll(() => supabase.from('visits').select('customer_id,visit_date')),
+    ]).then(([bills, visits]) => {
+      const s = {};
+      const get = (id) => (s[id] ||= { spend: 0, visits: 0, last: '' });
+      bills.forEach((b) => { get(b.customer_id).spend += Number(b.amount || 0); });
+      visits.forEach((v) => { const x = get(v.customer_id); x.visits += 1; if (v.visit_date > x.last) x.last = v.visit_date; });
+      setStats(s);
+    }).catch(() => {});
+  }, [tick]);
 
   if (err) return <ErrorBox error={err} />;
   if (!list) return <Loading />;
@@ -22,7 +38,14 @@ export default function Customers({ user, openCustomer }) {
   const ql = q.trim().toLowerCase();
   const shown = list
     .filter((c) => !tag || (c.tags || []).includes(tag))
-    .filter((c) => !ql || [c.name, c.phone, c.email, c.address].some((v) => (v || '').toLowerCase().includes(ql)));
+    .filter((c) => !ql || [c.name, c.phone, c.email, c.address].some((v) => (v || '').toLowerCase().includes(ql)))
+    .sort((a, b) => {
+      const A = stats[a.id] || {}; const B = stats[b.id] || {};
+      if (sort === 'spend') return (B.spend || 0) - (A.spend || 0);
+      if (sort === 'visits') return (B.visits || 0) - (A.visits || 0) || (B.spend || 0) - (A.spend || 0);
+      if (sort === 'recent') return (B.last || '').localeCompare(A.last || '');
+      return (a.name || '').localeCompare(b.name || '');
+    });
 
   return (
     <>
@@ -35,7 +58,17 @@ export default function Customers({ user, openCustomer }) {
         </div>
       </div>
       {notice && <div className="notice">{notice}</div>}
-      <input className="search" placeholder="Search by name, phone, email or address…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="search-row">
+        <input className="search" placeholder="Search by name, phone, email or address…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="inline">Sort by
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="name">Name (A–Z)</option>
+            <option value="spend">Highest purchases</option>
+            <option value="visits">Most visits</option>
+            <option value="recent">Last visited</option>
+          </select>
+        </label>
+      </div>
       {allTags.length > 0 && (
         <div className="tabs tag-filter">
           <button className={!tag ? 'active' : ''} onClick={() => setTag('')}>All</button>
@@ -45,14 +78,16 @@ export default function Customers({ user, openCustomer }) {
       <section className="card flush">
         {shown.length === 0 ? <Empty>{list.length ? 'No matching customers.' : 'No customers yet. Add your first one, or import them from Excel.'}</Empty> : (
           <table>
-            <thead><tr><th>Name</th><th>Phone</th><th className="hide-sm">Address</th><th className="hide-sm">Customer since</th></tr></thead>
+            <thead><tr><th>Name</th><th>Phone</th><th className="num">Purchases</th><th className="num">Visits</th><th className="hide-sm">Last visit</th><th className="hide-sm">Address</th></tr></thead>
             <tbody>
               {shown.map((c) => (
                 <tr key={c.id} className="click" onClick={() => openCustomer(c.id)}>
                   <td><strong>{c.name}</strong> <Tags tags={c.tags} /></td>
                   <td>{c.phone || '—'}</td>
+                  <td className="num">{inr(stats[c.id]?.spend || 0)}</td>
+                  <td className="num">{stats[c.id]?.visits || 0}</td>
+                  <td className="hide-sm">{fmtDate(stats[c.id]?.last)}</td>
                   <td className="hide-sm">{c.address || '—'}</td>
-                  <td className="hide-sm">{fmtDate(c.created_at)}</td>
                 </tr>
               ))}
             </tbody>
