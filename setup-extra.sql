@@ -6,7 +6,7 @@ create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   category text,
-  price numeric not null default 0,
+  price numeric default 0,   -- not used; price is entered on each bill
   active boolean not null default true,
   created_at timestamptz not null default now()
 );

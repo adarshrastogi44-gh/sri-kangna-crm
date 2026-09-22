@@ -98,3 +98,83 @@ export async function customerMap() {
   const list = await loadCustomers();
   return Object.fromEntries(list.map((c) => [c.id, c]));
 }
+
+// ---------- Bill items ----------
+// Stored in bills.items as one line per item: "2 × Cotton Suit @ 1500"
+// A discount is stored as "1 × Discount @ -200"
+const LINE_RE = /^\s*(\d+(?:\.\d+)?)\s*[×x]\s*(.+?)\s*@\s*(-?\d+(?:\.\d+)?)\s*$/;
+export function parseItems(text) {
+  if (!text) return { lines: [], ok: true };
+  const raw = text.split('\n').map((s) => s.trim()).filter(Boolean);
+  const lines = [];
+  for (const r of raw) {
+    const m = r.match(LINE_RE);
+    if (!m) return { lines: [], ok: false };
+    lines.push({ qty: Number(m[1]), name: m[2], rate: Number(m[3]) });
+  }
+  return { lines, ok: true };
+}
+export const formatItems = (lines) => lines.map((l) => `${l.qty} × ${l.name} @ ${l.rate}`).join('\n');
+export const itemsSummary = (text) => {
+  const { lines, ok } = parseItems(text);
+  if (!ok) return (text || '').split('\n').filter(Boolean).join(', ');
+  return lines.filter((l) => l.name !== 'Discount').map((l) => `${l.qty} × ${l.name}`).join(', ');
+};
+export const billNo = (b) => 'SK-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
+
+// ---------- Shop settings & products ----------
+const DEFAULT_SETTINGS = { shop_name: 'Sri Kangna', address: '', phone: '', gstin: '', bill_footer: 'Thank you for shopping with us!' };
+let settingsCache = null;
+export async function loadSettings(force = false) {
+  if (settingsCache && !force) return settingsCache;
+  const { data, error } = await supabase.from('shop_settings').select('*').eq('id', 1).maybeSingle();
+  settingsCache = { ...DEFAULT_SETTINGS, ...(error ? {} : data || {}), _missing: Boolean(error) };
+  return settingsCache;
+}
+
+export async function loadProducts() {
+  const { data, error } = await supabase.from('products').select('*').order('name');
+  if (error) throw error;
+  return data || [];
+}
+
+let tagsCol = null;
+export async function hasTagsColumn() {
+  if (tagsCol !== null) return tagsCol;
+  const { error } = await supabase.from('customers').select('tags').limit(1);
+  tagsCol = !error;
+  return tagsCol;
+}
+export const TAG_PRESETS = ['VIP', 'Regular', 'Wholesale', 'New'];
+
+// ---------- WhatsApp templates ----------
+export const WA_TEMPLATES = [
+  { key: 'thanks', label: 'Thank you for shopping' },
+  { key: 'due', label: 'Payment reminder' },
+  { key: 'birthday', label: 'Birthday wish' },
+  { key: 'anniversary', label: 'Anniversary wish' },
+  { key: 'collection', label: 'New collection arrived' },
+];
+export function waText(key, { customer, shop, due = 0, bill } = {}) {
+  const name = (customer?.name || '').split(' ')[0] || 'there';
+  const s = shop?.shop_name || 'Sri Kangna';
+  switch (key) {
+    case 'thanks':
+      return `Hi ${name}, thank you for shopping at ${s}!${bill ? ` Your bill ${billNo(bill)} of ${inr(bill.amount)}${dueOf(bill) > 0 ? ` (balance due ${inr(dueOf(bill))})` : ''} is recorded.` : ''} We hope to see you again soon.`;
+    case 'due':
+      return `Hi ${name}, this is a gentle reminder from ${s} that ${inr(due)} is pending on your account. Please clear it at your convenience. Thank you!`;
+    case 'birthday':
+      return `Happy Birthday ${name}! 🎉 Wishing you a wonderful year ahead. Visit ${s} this week for a special birthday surprise!`;
+    case 'anniversary':
+      return `Happy Anniversary ${name}! 💐 Warm wishes from all of us at ${s}.`;
+    case 'collection':
+      return `Hi ${name}, our new collection has just arrived at ${s}! Drop by to see it before it's gone.`;
+    default:
+      return '';
+  }
+}
+export function waSend(phone, text) {
+  const base = waLink(phone);
+  if (!base) return null;
+  return `${base}?text=${encodeURIComponent(text)}`;
+}

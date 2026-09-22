@@ -8,6 +8,8 @@ import Visits from './pages/Visits';
 import Bills from './pages/Bills';
 import Followups from './pages/Followups';
 import Reports from './pages/Reports';
+import Items from './pages/Items';
+import Settings from './pages/Settings';
 
 const PAGES = [
   ['dashboard', 'Dashboard'],
@@ -16,6 +18,8 @@ const PAGES = [
   ['bills', 'Bills'],
   ['followups', 'Follow-ups'],
   ['reports', 'Reports'],
+  ['items', 'Items'],
+  ['settings', 'Settings'],
 ];
 
 export default function App() {
@@ -77,6 +81,8 @@ export default function App() {
         {page === 'bills' && <Bills {...props} />}
         {page === 'followups' && <Followups {...props} />}
         {page === 'reports' && <Reports {...props} />}
+        {page === 'items' && <Items {...props} />}
+        {page === 'settings' && <Settings {...props} />}
       </main>
     </div>
   );
