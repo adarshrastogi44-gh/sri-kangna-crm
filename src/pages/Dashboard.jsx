@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm } from '../components';
-import { customerMap, daysUntil, dueOf, fetchAll, fmtDate, inr, invalidateCustomers, monthKey, monthLabel, monthRange, today } from '../utils';
+import { Badge, BarChart, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
+import { addMonths, customerMap, daysUntil, dueOf, fetchAll, fmtDate, inr, invalidateCustomers, monthKey, monthLabel, monthRange, today } from '../utils';
 
 export default function Dashboard({ user, openCustomer }) {
   const [d, setD] = useState(null);
@@ -14,13 +14,20 @@ export default function Dashboard({ user, openCustomer }) {
       try {
         const key = monthKey();
         const [ms, me] = monthRange(key);
-        const [visits, bills, dues, fups, cmap] = await Promise.all([
-          fetchAll(() => supabase.from('visits').select('customer_id,visit_date').gte('visit_date', ms).lt('visit_date', me)),
-          fetchAll(() => supabase.from('bills').select('customer_id,amount,paid_amount').gte('bill_date', ms).lt('bill_date', me)),
+        const [start6] = monthRange(addMonths(key, -5));
+        const [visits6, bills6, dues, fups, cmap] = await Promise.all([
+          fetchAll(() => supabase.from('visits').select('customer_id,visit_date').gte('visit_date', start6).lt('visit_date', me)),
+          fetchAll(() => supabase.from('bills').select('customer_id,bill_date,amount,paid_amount').gte('bill_date', start6).lt('bill_date', me)),
           fetchAll(() => supabase.from('bills').select('customer_id,amount,paid_amount').or('payment_status.is.null,payment_status.neq.paid')),
           fetchAll(() => supabase.from('followups').select('*').or('status.is.null,status.neq.done').lte('due_date', today()).order('due_date')),
           customerMap(),
         ]);
+
+        const visits = visits6.filter((v) => v.visit_date >= ms);
+        const bills = bills6.filter((b) => b.bill_date >= ms);
+        const months = [...Array(6)].map((_, i) => addMonths(key, i - 5));
+        const salesChart = months.map((k) => ({ key: k, label: monthLabel(k, true).split(' ')[0], value: bills6.filter((b) => b.bill_date.startsWith(k)).reduce((s, b) => s + Number(b.amount || 0), 0) }));
+        const visitsChart = months.map((k) => ({ key: k, label: monthLabel(k, true).split(' ')[0], value: visits6.filter((v) => v.visit_date.startsWith(k)).length }));
 
         const visitsBy = {};
         visits.forEach((v) => { visitsBy[v.customer_id] = (visitsBy[v.customer_id] || 0) + 1; });
@@ -52,6 +59,8 @@ export default function Dashboard({ user, openCustomer }) {
           fups: fups.map((f) => ({ ...f, c: cmap[f.customer_id] })),
           top,
           occasions,
+          salesChart,
+          visitsChart,
         });
       } catch (e) {
         setErr(e);
@@ -86,6 +95,17 @@ export default function Dashboard({ user, openCustomer }) {
 
       <div className="cols">
         <section className="card">
+          <h2>Sales · last 6 months</h2>
+          <BarChart data={d.salesChart} format={inr} label="Monthly sales for the last 6 months" />
+        </section>
+        <section className="card">
+          <h2>Visits · last 6 months</h2>
+          <BarChart data={d.visitsChart} format={(v) => `${v} visits`} label="Monthly visits for the last 6 months" />
+        </section>
+      </div>
+
+      <div className="cols">
+        <section className="card">
           <h2>Follow-ups due</h2>
           {d.fups.length === 0 ? <Empty>Nothing due today.</Empty> : (
             <ul className="list">
@@ -106,7 +126,10 @@ export default function Dashboard({ user, openCustomer }) {
               {d.occasions.map((o, i) => (
                 <li key={i} onClick={() => openCustomer(o.c.id)}>
                   <div><strong>{o.c.name}</strong><div className="muted small">{o.what}{o.c.phone ? ` · ${o.c.phone}` : ''}</div></div>
-                  <div className="right"><Badge tone={o.n === 0 ? 'green' : 'gray'}>{o.n === 0 ? 'Today' : o.n === 1 ? 'Tomorrow' : `In ${o.n} days`}</Badge></div>
+                  <div className="right" onClick={(e) => e.stopPropagation()}>
+                    <Badge tone={o.n === 0 ? 'green' : 'gray'}>{o.n === 0 ? 'Today' : o.n === 1 ? 'Tomorrow' : `In ${o.n} days`}</Badge>
+                    <WhatsAppMenu customer={o.c} small only={[o.what === 'Birthday' ? 'birthday' : 'anniversary']} />
+                  </div>
                 </li>
               ))}
             </ul>

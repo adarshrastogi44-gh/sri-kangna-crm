@@ -10,6 +10,15 @@ Customer CRM for Sri Kangna, built with React + Vite on top of the existing Supa
 - Follow-ups with overdue flags
 - Reports: monthly per-customer visits & purchases, "Good customers" (Loyal / Repeat / One-time over 3, 6 or 12 months), month-by-month trend, CSV downloads
 
+- Items list: pick items (with qty, price and discount) when making a bill
+- Printable bills (Print / Save as PDF) with shop details from Settings
+- WhatsApp message templates: thank you, payment reminder, birthday, anniversary, new collection
+- Customer tags (VIP, Regular, Wholesale…) and import customers from Excel/CSV
+- Sales and visits charts on the dashboard
+
+## One-time database setup
+Run `setup-extra.sql` in Supabase → SQL Editor (creates the item list, customer tags and shop settings).
+
 ## Deploy (Vercel)
 Environment variables (already set): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 Framework preset: Vite. Build command `npm run build`, output `dist`.

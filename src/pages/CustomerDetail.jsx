@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, Empty, ErrorBox, FollowupForm, Loading, Modal, StatusBadge, VisitForm } from '../components';
-import { dueOf, fetchAll, fmtDate, inr, must, waLink } from '../utils';
+import { Badge, BillForm, CustomerForm, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
   const [d, setD] = useState(null);
@@ -49,8 +49,9 @@ export default function CustomerDetail({ id, user, onBack }) {
     <>
       <button className="btn ghost small" onClick={onBack}>← Back</button>
       <div className="page-head">
-        <h1>{c.name}</h1>
+        <h1>{c.name} <Tags tags={c.tags} /></h1>
         <div className="actions">
+          <WhatsAppMenu customer={c} due={due} />
           <button className="btn" onClick={() => setModal('edit')}>Edit</button>
           <button className="btn" onClick={() => setModal('followup')}>+ Follow-up</button>
           <button className="btn" onClick={() => setModal('visit')}>+ Visit</button>
@@ -84,11 +85,12 @@ export default function CustomerDetail({ id, user, onBack }) {
               {bills.map((b) => (
                 <tr key={b.id}>
                   <td>{fmtDate(b.bill_date)}</td>
-                  <td className="hide-sm">{b.items || '—'}</td>
+                  <td className="hide-sm">{itemsSummary(b.items) || '—'}</td>
                   <td className="num">{inr(b.amount)}</td>
                   <td className="num">{inr(b.paid_amount)}</td>
                   <td><StatusBadge status={b.payment_status} /></td>
                   <td className="row-actions">
+                    <button className="link" onClick={() => setModal({ print: b })}>Print</button>
                     <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
                     <button className="link danger" onClick={() => remove('bills', b.id, 'bill')}>Delete</button>
                   </td>
@@ -138,6 +140,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       {modal === 'visit' && <Modal title={`Visit · ${c.name}`} onClose={() => setModal(null)}><VisitForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'followup' && <Modal title={`Follow-up · ${c.name}`} onClose={() => setModal(null)}><FollowupForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}
       {modal?.bill && <Modal title="Edit bill" onClose={() => setModal(null)}><BillForm bill={modal.bill} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
     </>
   );
