@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { CustomerForm, Empty, ErrorBox, Loading, Modal, Tags } from '../components';
 import { fmtDate, invalidateCustomers, loadCustomers } from '../utils';
 import ImportCustomers from './ImportCustomers';
+import ImportOldCrm from './ImportOldCrm';
 
-export default function Customers({ openCustomer }) {
+export default function Customers({ user, openCustomer }) {
   const [list, setList] = useState(null);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('');
@@ -28,6 +29,7 @@ export default function Customers({ openCustomer }) {
       <div className="page-head">
         <h1>Customers <span className="muted light">· {list.length}</span></h1>
         <div className="actions">
+          <button className="btn" onClick={() => setModal('old')}>Import from old CRM</button>
           <button className="btn" onClick={() => setModal('import')}>Import from Excel</button>
           <button className="btn primary" onClick={() => setModal('add')}>+ New customer</button>
         </div>
@@ -60,6 +62,15 @@ export default function Customers({ openCustomer }) {
       {modal === 'add' && (
         <Modal title="New customer" onClose={() => setModal(null)}>
           <CustomerForm onSaved={(c) => { setModal(null); openCustomer(c.id); }} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal === 'old' && (
+        <Modal title="Import from old CRM" onClose={() => setModal(null)}>
+          <ImportOldCrm user={user} onCancel={() => setModal(null)} onDone={(r) => {
+            setModal(null);
+            setNotice(`✓ Imported ${r.customers} customers, ${r.bills} bills, ${r.visits} visits${r.items ? ` and ${r.items} items` : ''}.`);
+            setTick((t) => t + 1);
+          }} />
         </Modal>
       )}
       {modal === 'import' && (

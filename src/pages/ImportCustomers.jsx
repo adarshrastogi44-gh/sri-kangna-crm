@@ -14,7 +14,7 @@ const FIELDS = {
   tags: ['tags', 'tag', 'category', 'type', 'group'],
 };
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
-const cleanPhone = (p) => {
+export const cleanPhone = (p) => {
   let d = String(p || '').replace(/\D/g, '');
   if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
   if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
@@ -34,7 +34,7 @@ function toDate(v) {
   }
   return null;
 }
-function parseCSV(text) {
+export function parseCSV(text) {
   const rows = []; let row = []; let cell = ''; let q = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
