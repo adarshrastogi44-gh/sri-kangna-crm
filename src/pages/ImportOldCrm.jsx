@@ -45,6 +45,7 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
 
   const buildPlan = async (f) => {
     setProgress('Checking what is already in this CRM…');
+    invalidateCustomers();
     const existing = await loadCustomers();
     const byPhone = new Map(existing.filter((c) => c.phone).map((c) => [cleanPhone(c.phone), c.id]));
     const oldBills = new Set((await fetchAll(() => supabase.from('bills').select('notes').like('notes', `${OLD_BILL}%`))).map((b) => b.notes.slice(OLD_BILL.length).split('\n')[0].trim()));
@@ -92,11 +93,20 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
       });
       for (let i = 0; i < rows.length; i += 200) {
         setProgress(`Customers: ${Math.min(i + 200, rows.length)} of ${rows.length}…`);
-        const saved = must(await supabase.from('customers').insert(rows.slice(i, i + 200)).select('id,phone'));
-        const byPhone = new Map(saved.map((s) => [s.phone, s.id]));
-        plan.newCustomers.slice(i, i + 200).forEach((c) => { idMap[c.id] = byPhone.get(cleanPhone(c.mobile)); });
+        // Phone numbers that already exist are skipped instead of stopping the import
+        must(await supabase.from('customers').upsert(rows.slice(i, i + 200), { onConflict: 'phone', ignoreDuplicates: true }));
       }
       invalidateCustomers();
+      const all = await loadCustomers();
+      const byPhone = new Map(all.filter((c) => c.phone).map((c) => [cleanPhone(c.phone), c.id]));
+      let missing = 0;
+      for (const c of files.customers.rows) {
+        const id = byPhone.get(cleanPhone(c.mobile));
+        if (id) idMap[c.id] = id; else missing += 1;
+      }
+      if (missing > 0 && missing === files.customers.rows.length) {
+        throw new Error('The customers could not be read back after saving. Please check that you are signed in, then try again.');
+      }
 
       // 2) bills (old CRM had no separate payment info, so bills are marked paid)
       const billRows = plan.bills.filter((b) => idMap[b.customerId]).map((b) => ({
