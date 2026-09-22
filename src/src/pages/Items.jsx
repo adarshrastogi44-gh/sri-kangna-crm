@@ -1,0 +1,93 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '../supabase';
+import { Badge, Empty, ErrorBox, Loading, Modal } from '../components';
+import { inr, loadProducts, must } from '../utils';
+
+export default function Items() {
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState(null);
+  const [q, setQ] = useState('');
+  const [edit, setEdit] = useState(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => { setErr(null); loadProducts().then(setList).catch((e) => { setErr(e); setList([]); }); }, [tick]);
+
+  const ql = q.trim().toLowerCase();
+  const shown = (list || []).filter((p) => !ql || p.name.toLowerCase().includes(ql) || (p.category || '').toLowerCase().includes(ql));
+  const done = () => { setEdit(null); setTick((t) => t + 1); };
+
+  return (
+    <>
+      <div className="page-head">
+        <h1>Items <span className="muted light">· {list ? list.length : ''}</span></h1>
+        <div className="actions"><button className="btn primary" onClick={() => setEdit({})} disabled={Boolean(err)}>+ New item</button></div>
+      </div>
+      {err && (
+        <div className="error">
+          The item list isn't set up yet. Open Supabase → SQL Editor, run the file <b>setup-extra.sql</b> from the download, then refresh this page.
+          <div className="small">({err.message})</div>
+        </div>
+      )}
+      <p className="muted small">Items you add here appear in the list when you create a bill. Prices can still be changed on each bill.</p>
+      <input className="search" placeholder="Search items or category…" value={q} onChange={(e) => setQ(e.target.value)} />
+      {!list ? <Loading /> : (
+        <section className="card flush">
+          {shown.length === 0 ? <Empty>{list.length ? 'No matching items.' : 'No items yet. Add your first item.'}</Empty> : (
+            <table>
+              <thead><tr><th>Item</th><th>Category</th><th className="num">Price</th><th>Status</th></tr></thead>
+              <tbody>
+                {shown.map((p) => (
+                  <tr key={p.id} className="click" onClick={() => setEdit(p)}>
+                    <td><strong>{p.name}</strong></td>
+                    <td>{p.category || '—'}</td>
+                    <td className="num">{inr(p.price)}</td>
+                    <td>{p.active === false ? <Badge>Hidden</Badge> : <Badge tone="green">Active</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+      {edit && <Modal title={edit.id ? 'Edit item' : 'New item'} onClose={() => setEdit(null)}><ItemForm item={edit} onSaved={done} onCancel={() => setEdit(null)} /></Modal>}
+    </>
+  );
+}
+
+function ItemForm({ item, onSaved, onCancel }) {
+  const [f, setF] = useState({ name: item.name || '', category: item.category || '', price: item.price ?? '', active: item.active !== false });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const row = { name: f.name.trim().replace(/[@\n]/g, ' '), category: f.category.trim() || null, price: Number(f.price || 0), active: f.active };
+      if (item.id) must(await supabase.from('products').update(row).eq('id', item.id));
+      else must(await supabase.from('products').insert(row));
+      onSaved();
+    } catch (x) { setError(x); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (!window.confirm(`Delete "${item.name}"? Old bills keep their item text.`)) return;
+    const { error } = await supabase.from('products').delete().eq('id', item.id);
+    if (error) setError(error); else onSaved();
+  };
+  return (
+    <form className="form" onSubmit={submit}>
+      <label>Item name *<input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></label>
+      <div className="grid2">
+        <label>Category<input placeholder="e.g. Suits, Sarees" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></label>
+        <label>Price (₹) *<input type="number" min="0" step="0.01" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
+      </div>
+      <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Show this item when making bills</label>
+      <ErrorBox error={error} />
+      <div className="form-actions">
+        {item.id && <button type="button" className="btn ghost danger-text" onClick={remove}>Delete</button>}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </form>
+  );
+}
