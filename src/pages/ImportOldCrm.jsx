@@ -64,10 +64,20 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
     const oldIds = new Set(f.customers.rows.map((c) => c.id));
     const bills = (f.bills?.rows || []).filter((b) => oldIds.has(b.customerId) && !oldBills.has(b.billNo) && day(b.date));
     const skippedBills = (f.bills?.rows.length || 0) - bills.length;
+    const haveVisits = new Set((await fetchAll(() => supabase.from('visits').select('customer_id,visit_date'))).map((v) => `${v.customer_id}|${v.visit_date}`));
+    const newIds = new Set(newCustomers.map((c) => c.id));
+    const pv = new Set();
+    for (const b of f.bills?.rows || []) {
+      const d = day(b.date);
+      if (!d || !oldIds.has(b.customerId)) continue;
+      if (newIds.has(b.customerId)) { pv.add(`new:${b.customerId}|${d}`); continue; }
+      const k = `${matched[b.customerId]}|${d}`;
+      if (!haveVisits.has(k)) pv.add(k);
+    }
     const items = f.inventory && productNames
       ? f.inventory.rows.filter((i) => i.name.trim() && !productNames.has(i.name.trim().toLowerCase()))
       : [];
-    setPlan({ newCustomers, matched, bills, skippedBills, items, itemsTableMissing: Boolean(f.inventory) && !productNames });
+    setPlan({ newCustomers, matched, bills, skippedBills, pendingVisits: pv.size, items, itemsTableMissing: Boolean(f.inventory) && !productNames });
     setProgress('');
   };
 
@@ -124,18 +134,27 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
         must(await supabase.from('bills').insert(billRows.slice(i, i + 200)));
       }
 
-      // 3) visits — in the old CRM every bill was a visit; one visit per customer per day
+      // 3) visits — in the old CRM every bill was a visit; one visit per customer per day.
+      //    Built from ALL bills in the file, so visits are added even if the bills were imported earlier.
       const have = new Set((await fetchAll(() => supabase.from('visits').select('customer_id,visit_date'))).map((v) => `${v.customer_id}|${v.visit_date}`));
       const visitRows = [];
-      for (const b of billRows) {
-        const k = `${b.customer_id}|${b.bill_date}`;
+      for (const b of files.bills?.rows || []) {
+        const cid = idMap[b.customerId]; const d = day(b.date);
+        if (!cid || !d) continue;
+        const k = `${cid}|${d}`;
         if (have.has(k)) continue;
         have.add(k);
-        visitRows.push({ customer_id: b.customer_id, visit_date: b.bill_date, visit_type: 'Purchase', notes: 'Imported from old CRM', created_by: user.id });
+        visitRows.push({ customer_id: cid, visit_date: d, visit_type: 'Purchase', created_by: user.id });
       }
-      for (let i = 0; i < visitRows.length; i += 200) {
-        setProgress(`Visits: ${Math.min(i + 200, visitRows.length)} of ${visitRows.length}…`);
-        must(await supabase.from('visits').insert(visitRows.slice(i, i + 200)));
+      for (let i = 0; i < visitRows.length; i += 100) {
+        setProgress(`Visits: ${Math.min(i + 100, visitRows.length)} of ${visitRows.length}…`);
+        const chunk = visitRows.slice(i, i + 100);
+        let { error } = await supabase.from('visits').insert(chunk);
+        if (error) {
+          // Some databases restrict visit types or the created_by link; retry with just the essentials
+          ({ error } = await supabase.from('visits').insert(chunk.map(({ customer_id, visit_date }) => ({ customer_id, visit_date }))));
+        }
+        if (error) throw new Error(`Saving visits failed: ${error.message}`);
       }
 
       // 4) items (name + category only)
@@ -171,7 +190,8 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
       {plan && (
         <div className="import-summary">
           <div><b>{plan.newCustomers.length}</b> new customers{Object.keys(plan.matched).length > 0 && <span className="muted"> · {Object.keys(plan.matched).length} already here (their bills will be added to them)</span>}</div>
-          {files.bills && <div><b>{plan.bills.length}</b> bills worth <b>{inr(billTotal)}</b> + matching visits{plan.skippedBills > 0 && <span className="muted"> · {plan.skippedBills} already imported, skipped</span>}</div>}
+          {files.bills && <div><b>{plan.bills.length}</b> bills worth <b>{inr(billTotal)}</b>{plan.skippedBills > 0 && <span className="muted"> · {plan.skippedBills} already imported, skipped</span>}</div>}
+          {files.bills && <div><b>{plan.pendingVisits}</b> visits to add (one per customer per bill date)</div>}
           {files.inventory && (plan.itemsTableMissing
             ? <div className="muted">Items can't be imported yet: run setup-extra.sql in Supabase first.</div>
             : <label className="check"><input type="checkbox" checked={withItems} onChange={(e) => setWithItems(e.target.checked)} /> Add <b>{plan.items.length}</b> inventory items to the Items list (name + category)</label>)}
@@ -182,7 +202,7 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
       <div className="form-actions">
         {progress && <span className="muted small">{progress}</span>}
         <button type="button" className="btn ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-        <button type="button" className="btn primary" disabled={busy || !plan} onClick={run}>{busy ? 'Importing…' : 'Import'}</button>
+        <button type="button" className="btn primary" disabled={busy || !plan || (!plan.newCustomers.length && !plan.bills.length && !plan.pendingVisits && !(withItems && plan.items.length))} onClick={run}>{busy ? 'Importing…' : 'Import'}</button>
       </div>
     </div>
   );
