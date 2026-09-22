@@ -120,7 +120,7 @@ export const itemsSummary = (text) => {
   if (!ok) return (text || '').split('\n').filter(Boolean).join(', ');
   return lines.filter((l) => l.name !== 'Discount').map((l) => `${l.qty} × ${l.name}`).join(', ');
 };
-export const billNo = (b) => 'SK-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
+export const billNo = (b) => 'EST-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
 
 // ---------- Shop settings & products ----------
 const DEFAULT_SETTINGS = { shop_name: 'Sri Kangna', address: '', phone: '', gstin: '', bill_footer: 'Thank you for shopping with us!' };
@@ -160,7 +160,7 @@ export function waText(key, { customer, shop, due = 0, bill } = {}) {
   const s = shop?.shop_name || 'Sri Kangna';
   switch (key) {
     case 'thanks':
-      return `Hi ${name}, thank you for shopping at ${s}!${bill ? ` Your bill ${billNo(bill)} of ${inr(bill.amount)}${dueOf(bill) > 0 ? ` (balance due ${inr(dueOf(bill))})` : ''} is recorded.` : ''} We hope to see you again soon.`;
+      return `Hi ${name}, thank you for shopping at ${s}!${bill ? ` Your estimate ${billNo(bill)} of ${inr(bill.amount)}${dueOf(bill) > 0 ? ` (balance due ${inr(dueOf(bill))})` : ''} is recorded.` : ''} We hope to see you again soon.`;
     case 'due':
       return `Hi ${name}, this is a gentle reminder from ${s} that ${inr(due)} is pending on your account. Please clear it at your convenience. Thank you!`;
     case 'birthday':

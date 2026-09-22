@@ -243,3 +243,9 @@ input.mini.wide { width: 100px; }
   .r-meta { grid-template-columns: 1fr; }
   .receipt { padding: 18px; }
 }
+.group-row td { background: rgba(255, 228, 236, .55); font-weight: 700; font-size: 13px; color: var(--brand); padding-top: 8px; padding-bottom: 8px; }
+.item-add label.inline input.price-in { width: 110px; }
+optgroup { font-weight: 700; color: var(--brand); }
+optgroup option { font-weight: 400; color: var(--text); }
+.r-title { display: inline-block; margin-top: 8px; padding: 3px 14px; border: 1.5px solid #111; font-weight: 800; letter-spacing: .18em; font-size: 13px; }
+.r-disclaimer { font-size: 11px; color: #777; margin-top: 4px; }

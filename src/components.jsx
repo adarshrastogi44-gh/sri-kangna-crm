@@ -185,7 +185,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [discount, setDiscount] = useState(parsed.ok ? String(-(parsed.lines.find((l) => l.name === 'Discount')?.rate || 0) || '') : '');
   const [products, setProducts] = useState(null);
   const [prodErr, setProdErr] = useState(null);
-  const [pick, setPick] = useState({ q: '', id: '', qty: 1, customName: '', customRate: '' });
+  const [pick, setPick] = useState({ q: '', id: '', qty: 1, rate: '', customName: '', customRate: '' });
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
@@ -202,15 +202,19 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
 
   const ql = pick.q.trim().toLowerCase();
   const shownProducts = (products || []).filter((p) => !ql || p.name.toLowerCase().includes(ql) || (p.category || '').toLowerCase().includes(ql));
+  const groups = Object.entries(shownProducts.reduce((g, p) => { const k = p.category || 'Other'; (g[k] ||= []).push(p); return g; }, {}))
+    .sort(([a], [b]) => (a === 'Other') - (b === 'Other') || a.localeCompare(b));
 
   const addProduct = () => {
     const p = (products || []).find((x) => x.id === pick.id);
     if (!p) return;
+    if (pick.rate === '') return;
     const qty = Math.max(1, Number(pick.qty || 1));
-    const i = lines.findIndex((l) => l.name === p.name && l.rate === Number(p.price));
+    const rate = Math.max(0, Number(pick.rate));
+    const i = lines.findIndex((l) => l.name === p.name && l.rate === rate);
     if (i >= 0) setLines(lines.map((l, j) => (j === i ? { ...l, qty: l.qty + qty } : l)));
-    else setLines([...lines, { name: p.name, qty, rate: Number(p.price) }]);
-    setPick({ ...pick, id: '', qty: 1 });
+    else setLines([...lines, { name: p.name, qty, rate }]);
+    setPick({ ...pick, id: '', qty: 1, rate: '' });
   };
   const addCustom = () => {
     if (!pick.customName.trim() || pick.customRate === '') return;
@@ -272,13 +276,18 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         ) : (
           <div className="item-pick">
             <input placeholder="Search items…" value={pick.q} onChange={(e) => setPick({ ...pick, q: e.target.value })} />
-            <select value={pick.id} onChange={(e) => setPick({ ...pick, id: e.target.value })} size={Math.min(5, Math.max(3, shownProducts.length + 1))}>
+            <select value={pick.id} onChange={(e) => setPick({ ...pick, id: e.target.value })} size={Math.min(8, Math.max(4, shownProducts.length + groups.length + 1))}>
               <option value="" disabled>— Select item —</option>
-              {shownProducts.map((p) => <option key={p.id} value={p.id}>{p.name}{p.category ? ` (${p.category})` : ''} — {inr(p.price)}</option>)}
+              {groups.map(([cat, items]) => (
+                <optgroup key={cat} label={cat}>
+                  {items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </optgroup>
+              ))}
             </select>
             <div className="item-add">
               <label className="inline">Qty<input type="number" min="1" value={pick.qty} onChange={(e) => setPick({ ...pick, qty: e.target.value })} /></label>
-              <button type="button" className="btn primary small" disabled={!pick.id} onClick={addProduct}>+ Add item</button>
+              <label className="inline">Price ₹<input className="price-in" type="number" min="0" step="0.01" placeholder="0" value={pick.rate} onChange={(e) => setPick({ ...pick, rate: e.target.value })} /></label>
+              <button type="button" className="btn primary small" disabled={!pick.id || pick.rate === ''} onClick={addProduct}>+ Add item</button>
             </div>
           </div>
         )}
@@ -354,7 +363,7 @@ function BillSaved({ bill, onDone }) {
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
       <div className="actions center-row">
-        <button className="btn" onClick={() => setPrinting(true)}>Print bill</button>
+        <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
         {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
         <button className="btn primary" onClick={onDone}>Done</button>
       </div>
@@ -385,10 +394,10 @@ export function PrintBill({ bill, onClose }) {
           <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
           {shop?.address && <div>{shop.address}</div>}
           {shop?.phone && <div>Phone: {shop.phone}</div>}
-          {shop?.gstin && <div>GSTIN: {shop.gstin}</div>}
+          <div className="r-title">ESTIMATE</div>
         </div>
         <div className="r-meta">
-          <div><b>Bill no:</b> {billNo(bill)}</div>
+          <div><b>Estimate no:</b> {billNo(bill)}</div>
           <div><b>Date:</b> {fmtDate(bill.bill_date)}</div>
           <div><b>Customer:</b> {c?.name || ''}</div>
           {c?.phone && <div><b>Phone:</b> {c.phone}</div>}
@@ -410,7 +419,7 @@ export function PrintBill({ bill, onClose }) {
           {dueOf(bill) > 0 && <><div><b>Balance due</b></div><div><b>{inr(dueOf(bill))}</b></div></>}
         </div>
         {bill.notes && <div className="r-notes">Note: {bill.notes}</div>}
-        <div className="r-foot">{shop?.bill_footer || 'Thank you for shopping with us!'}</div>
+        <div className="r-foot">{shop?.bill_footer || 'Thank you for shopping with us!'}<div className="r-disclaimer">This is an estimate only, not a tax invoice.</div></div>
       </div>
     </div>,
     document.body

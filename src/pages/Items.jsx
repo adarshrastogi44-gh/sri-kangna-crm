@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, Empty, ErrorBox, Loading, Modal } from '../components';
-import { inr, loadProducts, must } from '../utils';
+import { loadProducts, must } from '../utils';
 
 export default function Items() {
   const [list, setList] = useState(null);
@@ -14,6 +14,8 @@ export default function Items() {
 
   const ql = q.trim().toLowerCase();
   const shown = (list || []).filter((p) => !ql || p.name.toLowerCase().includes(ql) || (p.category || '').toLowerCase().includes(ql));
+  const groups = Object.entries(shown.reduce((g, p) => { const k = p.category || 'Other'; (g[k] ||= []).push(p); return g; }, {}))
+    .sort(([x], [y]) => (x === 'Other') - (y === 'Other') || x.localeCompare(y));
   const done = () => { setEdit(null); setTick((t) => t + 1); };
 
   return (
@@ -28,41 +30,42 @@ export default function Items() {
           <div className="small">({err.message})</div>
         </div>
       )}
-      <p className="muted small">Items you add here appear in the list when you create a bill. Prices can still be changed on each bill.</p>
+      <p className="muted small">Items you add here appear in the list (grouped by category) when you create a bill. You enter the quantity and price on each bill.</p>
       <input className="search" placeholder="Search items or category…" value={q} onChange={(e) => setQ(e.target.value)} />
       {!list ? <Loading /> : (
         <section className="card flush">
           {shown.length === 0 ? <Empty>{list.length ? 'No matching items.' : 'No items yet. Add your first item.'}</Empty> : (
             <table>
-              <thead><tr><th>Item</th><th>Category</th><th className="num">Price</th><th>Status</th></tr></thead>
-              <tbody>
-                {shown.map((p) => (
-                  <tr key={p.id} className="click" onClick={() => setEdit(p)}>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{p.category || '—'}</td>
-                    <td className="num">{inr(p.price)}</td>
-                    <td>{p.active === false ? <Badge>Hidden</Badge> : <Badge tone="green">Active</Badge>}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr><th>Item</th><th>Status</th></tr></thead>
+              {groups.map(([cat, items]) => (
+                <tbody key={cat}>
+                  <tr className="group-row"><td colSpan="2">{cat} <span className="muted">· {items.length}</span></td></tr>
+                  {items.map((p) => (
+                    <tr key={p.id} className="click" onClick={() => setEdit(p)}>
+                      <td><strong>{p.name}</strong></td>
+                      <td>{p.active === false ? <Badge>Hidden</Badge> : <Badge tone="green">Active</Badge>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
             </table>
           )}
         </section>
       )}
-      {edit && <Modal title={edit.id ? 'Edit item' : 'New item'} onClose={() => setEdit(null)}><ItemForm item={edit} onSaved={done} onCancel={() => setEdit(null)} /></Modal>}
+      {edit && <Modal title={edit.id ? 'Edit item' : 'New item'} onClose={() => setEdit(null)}><ItemForm item={edit} cats={[...new Set((list || []).map((p) => p.category).filter(Boolean))].sort()} onSaved={done} onCancel={() => setEdit(null)} /></Modal>}
     </>
   );
 }
 
-function ItemForm({ item, onSaved, onCancel }) {
-  const [f, setF] = useState({ name: item.name || '', category: item.category || '', price: item.price ?? '', active: item.active !== false });
+function ItemForm({ item, cats, onSaved, onCancel }) {
+  const [f, setF] = useState({ name: item.name || '', category: item.category || '', active: item.active !== false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const row = { name: f.name.trim().replace(/[@\n]/g, ' '), category: f.category.trim() || null, price: Number(f.price || 0), active: f.active };
+      const row = { name: f.name.trim().replace(/[@\n]/g, ' '), category: f.category.trim() || null, active: f.active };
       if (item.id) must(await supabase.from('products').update(row).eq('id', item.id));
       else must(await supabase.from('products').insert(row));
       onSaved();
@@ -76,10 +79,10 @@ function ItemForm({ item, onSaved, onCancel }) {
   return (
     <form className="form" onSubmit={submit}>
       <label>Item name *<input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></label>
-      <div className="grid2">
-        <label>Category<input placeholder="e.g. Suits, Sarees" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></label>
-        <label>Price (₹) *<input type="number" min="0" step="0.01" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></label>
-      </div>
+      <label>Category
+        <input list="item-cats" placeholder="e.g. Suits, Sarees, Dupattas" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} />
+        <datalist id="item-cats">{cats.map((c) => <option key={c} value={c} />)}</datalist>
+      </label>
       <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Show this item when making bills</label>
       <ErrorBox error={error} />
       <div className="form-actions">
