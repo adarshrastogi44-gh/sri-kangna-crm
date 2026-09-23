@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
-import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, waLink } from '../utils';
+import { Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupActions, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { billPoints, dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
   const [d, setD] = useState(null);
@@ -51,7 +51,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       <div className="page-head">
         <h1>{c.name} <Tags tags={c.tags} /></h1>
         <div className="actions">
-          <WhatsAppMenu customer={c} due={due} />
+          <WhatsAppMenu customer={c} due={due} points={pointsTotal(bills)} />
           <button className="btn" onClick={() => setModal('edit')}>Edit</button>
           <button className="btn" onClick={() => setModal('followup')}>+ Follow-up</button>
           <button className="btn" onClick={() => setModal('visit')}>+ Visit</button>
@@ -66,12 +66,13 @@ export default function CustomerDetail({ id, user, onBack }) {
         <div><span className="muted small">Birthday</span>{fmtDate(c.date_of_birth)}</div>
         <div><span className="muted small">Anniversary</span>{fmtDate(c.anniversary)}</div>
         <div><span className="muted small">Customer since</span>{fmtDate(c.created_at)}</div>
-        {c.notes && <div className="wide"><span className="muted small">Notes</span>{c.notes}</div>}
+        {c.notes && <div className="wide cust-note inline-note"><span className="cust-note-icon">📝</span><div><div className="cust-note-title">Notes</div><div className="cust-note-text">{c.notes}</div></div></div>}
       </section>
 
       <div className="stats">
         <div className="stat"><div className="stat-label">Total purchases</div><div className="stat-value">{inr(total)}</div><div className="stat-sub">{bills.length} bills</div></div>
         <div className="stat"><div className="stat-label">Visits</div><div className="stat-value">{visits.length}</div><div className="stat-sub">Last: {fmtDate(visits[0]?.visit_date)}</div></div>
+        <div className="stat loyalty"><div className="stat-label">★ Loyalty points</div><div className="stat-value">{pointsTotal(bills)}</div><div className="stat-sub">= {inr(pointsTotal(bills))} · earned {pointsEarned(bills)} · used {pointsUsed(bills)}</div></div>
         <div className="stat"><div className="stat-label">Active months</div><div className="stat-value">{months.size}</div></div>
         <div className={`stat ${due > 0 ? 'warn' : ''}`}><div className="stat-label">Pending due</div><div className="stat-value">{inr(due)}</div></div>
       </div>
@@ -80,7 +81,7 @@ export default function CustomerDetail({ id, user, onBack }) {
         <h2 className="pad">Bills</h2>
         {bills.length === 0 ? <Empty>No bills yet.</Empty> : (
           <table>
-            <thead><tr><th>Date</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num">Paid</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num">Paid</th><th className="num">Points</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {bills.map((b) => (
                 <tr key={b.id}>
@@ -88,11 +89,13 @@ export default function CustomerDetail({ id, user, onBack }) {
                   <td className="hide-sm">{itemsSummary(b.items) || '—'}</td>
                   <td className="num">{inr(b.amount)}</td>
                   <td className="num">{inr(b.paid_amount)}</td>
+                  <td className="num"><span className="pts">{billPoints(b) ? `+${billPoints(b)}` : '0'}</span>{redeemedOf(b) > 0 && <div className="pts-used">−{redeemedOf(b)} used</div>}</td>
                   <td><StatusBadge status={b.payment_status} /></td>
                   <td className="row-actions">
                     <button className="link" onClick={() => setModal({ print: b })}>Print</button>
+                        <span className="row-wa"><ShareBill bill={b} customer={c} small /></span>
                     <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
-                    <button className="link danger" onClick={() => remove('bills', b.id, 'bill')}>Delete</button>
+                    <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -125,10 +128,8 @@ export default function CustomerDetail({ id, user, onBack }) {
             <ul className="list pad-list">
               {fups.map((f) => (
                 <li key={f.id}>
-                  <div><strong>{fmtDate(f.due_date)}</strong><div className="muted small">{f.notes || '—'}</div></div>
-                  <div className="right">
-                    {f.status === 'done' ? <Badge tone="green">Done</Badge> : <button className="btn small" onClick={() => markDone(f)}>Mark done</button>}
-                  </div>
+                  <div><strong>{fmtDate(f.due_date)}</strong> {f.status === 'done' && <Badge tone="green">Done</Badge>}<div className="fu-note">{f.notes || '—'}</div></div>
+                  <div className="right"><FollowupActions f={f} customer={c} onEdit={() => setModal({ fu: f })} onChanged={done} /></div>
                 </li>
               ))}
             </ul>
@@ -136,10 +137,12 @@ export default function CustomerDetail({ id, user, onBack }) {
         </section>
       </div>
 
+      {modal?.fu && <Modal title="Edit follow-up" onClose={() => setModal(null)}><FollowupForm followup={modal.fu} customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'edit' && <Modal title="Edit customer" onClose={() => setModal(null)}><CustomerForm customer={c} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'visit' && <Modal title={`Visit · ${c.name}`} onClose={() => setModal(null)}><VisitForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'followup' && <Modal title={`Follow-up · ${c.name}`} onClose={() => setModal(null)}><FollowupForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.del && <DeleteBillModal key={modal.del.id} bill={modal.del} customerName={c.name} onDeleted={done} onClose={() => setModal(null)} />}
       {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}
       {modal?.bill && <Modal title="Edit bill" onClose={() => setModal(null)}><BillForm bill={modal.bill} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
     </>

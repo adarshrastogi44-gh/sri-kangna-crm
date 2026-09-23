@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
-  return (
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" role="dialog" aria-label={title}>
         <div className="modal-head">
@@ -13,7 +13,8 @@ export function Modal({ title, onClose, children }) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -56,23 +57,185 @@ function FormButtons({ busy, onCancel, label = 'Save' }) {
   );
 }
 
-export function CustomerPicker({ value, onChange }) {
+// Shows whether a customer is existing (with history) or new, with a quick "Add new customer" option
+function CustomerStatus({ customer }) {
+  const [h, setH] = useState(null);
+  useEffect(() => {
+    let live = true;
+    supabase.from('bills').select('amount,bill_date').eq('customer_id', customer.id).then(({ data }) => {
+      if (!live) return;
+      const bills = data || [];
+      setH({ count: bills.length, total: bills.reduce((s, x) => s + Number(x.amount || 0), 0), last: bills.map((x) => x.bill_date).sort().pop() });
+    });
+    return () => { live = false; };
+  }, [customer.id]);
+  const isNew = h && h.count === 0;
+  return (
+    <span className={`cust-status ${isNew ? 'new' : 'old'}`}>
+      {h == null ? 'Checking…' : isNew
+        ? '✓ Existing customer · no purchases yet'
+        : `✓ Existing customer · ${h.count} bill${h.count === 1 ? '' : 's'} · ${inr(h.total)} · last ${fmtDate(h.last)}`}
+    </span>
+  );
+}
+
+export function CustomerPicker({ value, onChange, onPicked, autoFocus, allowAdd = true }) {
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
+  const [active, setActive] = useState(0);
+  const [editing, setEditing] = useState(!value);
+  const [adding, setAdding] = useState(null);
+  const [justAdded, setJustAdded] = useState(false);
+  const inputRef = useRef(null);
   useEffect(() => { loadCustomers().then(setList).catch(() => {}); }, []);
+  const sel = list.find((c) => c.id === value);
   const ql = q.trim().toLowerCase();
-  const shown = ql
-    ? list.filter((c) => (c.name || '').toLowerCase().includes(ql) || (c.phone || '').includes(ql))
-    : list;
+  const digits = ql.replace(/\D/g, '');
+  const isPhone = digits.length >= 3 && digits.length === ql.replace(/[\s+-]/g, '').length;
+  const matches = ql
+    ? list.filter((c) => (c.name || '').toLowerCase().includes(ql) || (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))).slice(0, 8)
+    : [];
+  const pick = (c) => {
+    onChange(c.id); setEditing(false); setQ('');
+    if (onPicked) setTimeout(onPicked, 0);
+  };
+  // Full 10-digit mobile number that matches exactly one customer → pick them and move on
+  useEffect(() => {
+    setActive(0);
+    if (isPhone && digits.length >= 10 && matches.length === 1) pick(matches[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, list.length]);
+
+  const addModal = adding && (
+    <Modal title="Add new customer" onClose={() => setAdding(null)}>
+      <div className="new-banner">★ New customer. Fill in their details and save.</div>
+      <CustomerForm initial={adding} onCancel={() => setAdding(null)} onSaved={async (c) => {
+        invalidateCustomers();
+        const fresh = await loadCustomers(); setList(fresh);
+        setAdding(null); setJustAdded(true); pick(c);
+      }} />
+    </Modal>
+  );
+
+  if (!editing && sel) {
+    return (
+      <div className="picked">
+        <div>
+          <b>{sel.name}</b>{sel.phone ? <span className="muted"> · {sel.phone}</span> : null}
+          <div>{justAdded ? <span className="cust-status new">★ New customer, just added</span> : <CustomerStatus customer={sel} />}</div>
+        </div>
+        <button type="button" className="link" onClick={() => { setEditing(true); setJustAdded(false); setTimeout(() => inputRef.current?.focus(), 0); }}>Change</button>
+      </div>
+    );
+  }
+  const startAdd = () => setAdding(isPhone ? { phone: digits } : { name: q.trim().replace(/\b\w/g, (m) => m.toUpperCase()) });
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, matches.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (matches[active]) pick(matches[active]); else if (ql && allowAdd) startAdd(); }
+    else if (e.key === 'Escape' && sel) { setEditing(false); setQ(''); }
+  };
   return (
-    <div className="picker">
-      <input placeholder="Search customer by name or phone…" value={q} onChange={(e) => setQ(e.target.value)} />
-      <select value={value || ''} onChange={(e) => onChange(e.target.value)} size={Math.min(6, Math.max(3, shown.length + 1))}>
-        <option value="" disabled>— Select customer —</option>
-        {shown.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>
+    <div className="typeahead">
+      {addModal}
+      <input ref={inputRef} placeholder="Type customer name or mobile number…" value={q} autoFocus={autoFocus}
+        onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} autoComplete="off" />
+      {ql && (
+        <div className="ta-list">
+          {matches.length > 0 && <div className="ta-note old">✓ Existing customer{matches.length > 1 ? 's' : ''} found</div>}
+          {matches.map((c, i) => (
+            <button type="button" key={c.id} className={`ta-opt ${i === active ? 'active' : ''}`} onMouseEnter={() => setActive(i)} onClick={() => pick(c)}>
+              <b>{c.name}</b>{c.phone ? <span className="muted"> · {c.phone}</span> : null}
+            </button>
+          ))}
+          {matches.length === 0 && <div className="ta-note new">★ New customer: no one with this {isPhone ? 'number' : 'name'} yet</div>}
+          {allowAdd && (matches.length === 0 || !isPhone) && (
+            <button type="button" className="ta-add" onClick={startAdd}>+ Add new customer{q.trim() ? ` "${q.trim()}"` : ''}</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Date box that always uses dd/mm/yyyy ----------
+const toDMY = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+export function DateInput({ value, onChange, inputRef, onEnter, required }) {
+  const [text, setText] = useState(toDMY(value));
+  const hidden = useRef(null);
+  useEffect(() => { setText(toDMY(value)); }, [value]);
+  const handle = (raw) => {
+    const d = raw.replace(/\D/g, '').slice(0, 8);
+    if (!d.length) { setText(''); onChange(''); return; }
+    setText(d.length > 4 ? `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}` : d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d);
+    if (d.length === 8) {
+      const iso = `${d.slice(4)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+      const dt = new Date(iso + 'T00:00:00');
+      if (!isNaN(dt) && dt.getDate() === Number(d.slice(0, 2))) onChange(iso);
+    }
+  };
+  return (
+    <div className="date-input">
+      <input ref={inputRef} type="text" inputMode="numeric" placeholder="dd/mm/yyyy" value={text} required={required} autoComplete="off"
+        onChange={(e) => handle(e.target.value)} onBlur={() => setText(toDMY(value))}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter?.(); } }} />
+      <button type="button" className="date-btn" aria-label="Open calendar" onClick={() => { try { hidden.current?.showPicker(); } catch { hidden.current?.click(); } }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+      </button>
+      <input ref={hidden} type="date" className="date-hidden" tabIndex={-1} value={value || ''} onChange={(e) => e.target.value && onChange(e.target.value)} />
+    </div>
+  );
+}
+
+// ---------- Item list: categories you open, search jumps to the item ----------
+export function ItemPicker({ products, onPick, inputRef }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState({});
+  const [active, setActive] = useState(0);
+  const listRef = useRef(null);
+  const groups = useMemo(() => {
+    const g = {};
+    products.forEach((p) => { (g[p.category || 'Other'] ||= []).push(p); });
+    return Object.entries(g).sort(([a], [b]) => (a === 'Other') - (b === 'Other') || a.localeCompare(b));
+  }, [products]);
+  const ql = q.trim().toLowerCase();
+  const results = useMemo(() => (ql ? products.filter((p) => p.name.toLowerCase().includes(ql) || (p.category || '').toLowerCase().includes(ql)).slice(0, 60) : []), [ql, products]);
+
+  useEffect(() => { setActive(0); }, [ql]);
+  useEffect(() => { listRef.current?.querySelector('.io.active')?.scrollIntoView({ block: 'nearest' }); }, [active, ql]);
+
+  const choose = (p) => { setQ(''); onPick(p); };
+  const onKey = (e) => {
+    if (!ql) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, results.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (results[active]) choose(results[active]); }
+  };
+
+  return (
+    <div className="item-picker">
+      <input ref={inputRef} placeholder="Search item… (↑ ↓ to move, Enter to choose)" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} autoComplete="off" />
+      <div className="ip-list" ref={listRef}>
+        {ql ? (
+          results.length === 0 ? <div className="ta-empty">No item found</div> : results.map((p, i) => (
+            <button type="button" key={p.id} className={`io ${i === active ? 'active' : ''}`} onMouseEnter={() => setActive(i)} onClick={() => choose(p)}>
+              {p.name} <span className="io-cat">{p.category || 'Other'}</span>
+            </button>
+          ))
+        ) : groups.map(([cat, items]) => (
+          <div key={cat} className="ip-group">
+            <button type="button" className={`ip-head ${open[cat] ? 'open' : ''}`} onClick={() => setOpen({ ...open, [cat]: !open[cat] })}>
+              <span className="chev">{open[cat] ? '▾' : '▸'}</span> {cat} <span className="muted small">({items.length})</span>
+            </button>
+            {open[cat] && (
+              <div className="ip-items">
+                {items.slice(0, 200).map((p) => <button type="button" key={p.id} className="io" onClick={() => choose(p)}>{p.name}</button>)}
+                {items.length > 200 && <div className="ta-empty">Showing 200 of {items.length}. Type in the search box to find others.</div>}
+              </div>
+            )}
+          </div>
         ))}
-      </select>
+      </div>
     </div>
   );
 }
@@ -80,10 +243,10 @@ export function CustomerPicker({ value, onChange }) {
 const clean = (obj) =>
   Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v]));
 
-export function CustomerForm({ customer, onSaved, onCancel }) {
+export function CustomerForm({ customer, initial, onSaved, onCancel }) {
   const [f, setF] = useState({
-    name: customer?.name || '',
-    phone: customer?.phone || '',
+    name: customer?.name || initial?.name || '',
+    phone: customer?.phone || initial?.phone || '',
     email: customer?.email || '',
     address: customer?.address || '',
     date_of_birth: customer?.date_of_birth || '',
@@ -98,6 +261,7 @@ export function CustomerForm({ customer, onSaved, onCancel }) {
 
   const submit = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     run(async () => {
       const row = clean(f);
       if (tagsOk) row.tags = tags;
@@ -126,8 +290,8 @@ export function CustomerForm({ customer, onSaved, onCancel }) {
         <label>Phone<input type="tel" value={f.phone} onChange={set('phone')} /></label>
         <label>Email<input type="email" value={f.email} onChange={set('email')} /></label>
         <label>Address<input value={f.address} onChange={set('address')} /></label>
-        <label>Date of birth<input type="date" value={f.date_of_birth} onChange={set('date_of_birth')} /></label>
-        <label>Anniversary<input type="date" value={f.anniversary} onChange={set('anniversary')} /></label>
+        <div className="field"><span>Date of birth</span><DateInput value={f.date_of_birth} onChange={(v) => setF((x) => ({ ...x, date_of_birth: v }))} /></div>
+        <div className="field"><span>Anniversary</span><DateInput value={f.anniversary} onChange={(v) => setF((x) => ({ ...x, anniversary: v }))} /></div>
       </div>
       {tagsOk && <div className="field"><span>Tags</span><TagPicker value={tags} onChange={setTags} /></div>}
       <label>Notes<textarea rows="2" value={f.notes} onChange={set('notes')} /></label>
@@ -149,16 +313,16 @@ export function VisitForm({ customerId, user, onSaved, onCancel }) {
     e.preventDefault();
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
-      must(await supabase.from('visits').insert(clean({ customer_id: cid, ...f, created_by: user.id })));
+      await insertVisits(clean({ customer_id: cid, ...f, created_by: user.id }));
       onSaved();
     });
   };
 
   return (
     <form onSubmit={submit} className="form">
-      {!customerId && <label>Customer *<CustomerPicker value={cid} onChange={setCid} /></label>}
+      {!customerId && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus onPicked={() => document.querySelector('.modal .date-input input')?.focus()} /></div>}
       <div className="grid2">
-        <label>Visit date *<input type="date" required value={f.visit_date} onChange={set('visit_date')} /></label>
+        <div className="field"><span>Visit date *</span><DateInput value={f.visit_date} onChange={(v) => setF((x) => ({ ...x, visit_date: v }))} required /></div>
         <label>Visit type
           <input list="visit-types" value={f.visit_type} onChange={set('visit_type')} />
           <datalist id="visit-types">{VISIT_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
@@ -189,14 +353,41 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
+  const [redeem, setRedeem] = useState(bill ? String(redeemedOf(bill) || '') : '');
+  const [available, setAvailable] = useState(null);
+  const [redeemOk, setRedeemOk] = useState(true);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const { busy, error, run } = useSave();
+  const dateRef = useRef(null);
+  useEffect(() => { hasRedeemColumn().then(setRedeemOk); }, []);
+  useEffect(() => {
+    setAvailable(null);
+    if (cid) customerPoints(cid, bill?.id).then(setAvailable).catch(() => setAvailable(0));
+  }, [cid, bill?.id]);
+  const itemRef = useRef(null);
+  const qtyRef = useRef(null);
+  const rateRef = useRef(null);
+  const focusSel = (r) => setTimeout(() => { r.current?.focus(); r.current?.select?.(); }, 0);
+  const formRef = useRef(null);
+  // Customer already chosen (bill opened from a customer's page) → start in the date box
+  useEffect(() => { if (customerId || bill) focusSel(dateRef); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // F2 = save the bill
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'F2') { e.preventDefault(); formRef.current?.requestSubmit(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => { loadProducts().then((p) => setProducts(p.filter((x) => x.active !== false))).catch(setProdErr); }, []);
 
+  const pickedProduct = (products || []).find((x) => x.id === pick.id);
   const subtotal = lines.reduce((s, l) => s + l.qty * l.rate, 0);
   const disc = Math.max(0, Number(discount || 0));
-  const amount = lines.length ? Math.max(0, subtotal - disc) : Number(f.amount || 0);
+  const gross = lines.length ? Math.max(0, subtotal - disc) : Number(f.amount || 0);
+  const maxRedeem = Math.max(0, Math.min(available || 0, Math.floor(gross)));
+  const used = Math.max(0, Math.min(Math.floor(Number(redeem || 0)), maxRedeem));
+  const amount = Math.max(0, gross - used);
   const paid = fullPaid ? amount : Number(f.paid_amount || 0);
   const status = statusFor(amount, paid);
 
@@ -215,18 +406,22 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
     if (i >= 0) setLines(lines.map((l, j) => (j === i ? { ...l, qty: l.qty + qty } : l)));
     else setLines([...lines, { name: p.name, qty, rate }]);
     setPick({ ...pick, id: '', qty: 1, rate: '' });
+    focusSel(itemRef); // ready for the next item
   };
   const addCustom = () => {
     if (!pick.customName.trim() || pick.customRate === '') return;
     setLines([...lines, { name: pick.customName.trim().replace(/[@\n]/g, ' '), qty: Math.max(1, Number(pick.qty || 1)), rate: Number(pick.customRate) }]);
     setPick({ ...pick, customName: '', customRate: '', qty: 1 });
+    focusSel(itemRef);
   };
   const updLine = (i, k, v) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: Math.max(0, Number(v || 0)) } : l)));
 
   const submit = (e) => {
     e.preventDefault();
+    if (busy) return; // avoid saving twice (e.g. F2 pressed quickly)
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
+      if (!f.bill_date) throw new Error('Please enter the bill date (dd/mm/yyyy).');
       if (!lines.length && !(amount > 0)) throw new Error('Add at least one item, or enter the bill amount.');
       if (paid > amount) throw new Error('Paid amount cannot be more than the bill amount.');
       const itemsText = lines.length
@@ -241,6 +436,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         payment_status: status,
         notes: f.notes,
       });
+      if (redeemOk) row.points_redeemed = used;
+      if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
       if (bill) {
         result = must(await supabase.from('bills').update(row).eq('id', bill.id).select().single());
@@ -248,13 +445,15 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         return;
       }
       result = must(await supabase.from('bills').insert({ ...row, created_by: user.id }).select().single());
+      let visitNote = '';
       if (logVisit) {
-        const existing = must(await supabase.from('visits').select('id').eq('customer_id', cid).eq('visit_date', f.bill_date).limit(1));
-        if (!existing.length) {
-          must(await supabase.from('visits').insert({ customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id }));
-        }
+        // The bill is already saved; a problem with the visit must not block it (avoids duplicate bills)
+        try {
+          const existing = must(await supabase.from('visits').select('id').eq('customer_id', cid).eq('visit_date', f.bill_date).limit(1));
+          if (!existing.length) await insertVisits({ customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id });
+        } catch (x) { visitNote = `Bill saved, but the visit could not be recorded: ${x.message}`; }
       }
-      setSaved(result);
+      setSaved({ ...result, _visitNote: visitNote });
     });
   };
 
@@ -263,9 +462,10 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   }
 
   return (
-    <form onSubmit={submit} className="form">
-      {!customerId && !bill && <label>Customer *<CustomerPicker value={cid} onChange={setCid} /></label>}
-      <label>Bill date *<input type="date" required value={f.bill_date} onChange={set('bill_date')} /></label>
+    <form ref={formRef} onSubmit={submit} className="form bill-form">
+      {!customerId && !bill && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus onPicked={() => focusSel(dateRef)} /></div>}
+      {cid && <CustomerNote customerId={cid} />}
+      <div className="field"><span>Bill date *</span><DateInput value={f.bill_date} onChange={(v) => setF((x) => ({ ...x, bill_date: v }))} inputRef={dateRef} onEnter={() => focusSel(itemRef)} required /></div>
 
       <div className="item-box">
         <div className="item-box-title">Items</div>
@@ -275,18 +475,14 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           <div className="muted small">No items in your list yet. Add them on the <b>Items</b> page, or add one by hand below.</div>
         ) : (
           <div className="item-pick">
-            <input placeholder="Search items…" value={pick.q} onChange={(e) => setPick({ ...pick, q: e.target.value })} />
-            <select value={pick.id} onChange={(e) => setPick({ ...pick, id: e.target.value })} size={Math.min(8, Math.max(4, shownProducts.length + groups.length + 1))}>
-              <option value="" disabled>— Select item —</option>
-              {groups.map(([cat, items]) => (
-                <optgroup key={cat} label={cat}>
-                  {items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
+            <ItemPicker products={products || []} inputRef={itemRef}
+              onPick={(p) => { setPick((x) => ({ ...x, id: p.id })); focusSel(qtyRef); }} />
+            {pickedProduct && <div className="picked small"><div>Selected: <b>{pickedProduct.name}</b> <span className="muted">· {pickedProduct.category || 'Other'}</span></div></div>}
             <div className="item-add">
-              <label className="inline">Qty<input type="number" min="1" value={pick.qty} onChange={(e) => setPick({ ...pick, qty: e.target.value })} /></label>
-              <label className="inline">Price ₹<input className="price-in" type="number" min="0" step="0.01" placeholder="0" value={pick.rate} onChange={(e) => setPick({ ...pick, rate: e.target.value })} /></label>
+              <label className="inline">Qty<input ref={qtyRef} type="number" min="1" value={pick.qty} onChange={(e) => setPick({ ...pick, qty: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusSel(rateRef); } }} /></label>
+              <label className="inline">Price ₹<input ref={rateRef} className="price-in" type="number" min="0" step="0.01" placeholder="0" value={pick.rate} onChange={(e) => setPick({ ...pick, rate: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addProduct(); } }} /></label>
               <button type="button" className="btn primary small" disabled={!pick.id || pick.rate === ''} onClick={addProduct}>+ Add item</button>
             </div>
           </div>
@@ -295,7 +491,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           <summary>Add an item that's not in the list</summary>
           <div className="item-add">
             <input placeholder="Item name" value={pick.customName} onChange={(e) => setPick({ ...pick, customName: e.target.value })} />
-            <input type="number" min="0" step="0.01" placeholder="Price ₹" value={pick.customRate} onChange={(e) => setPick({ ...pick, customRate: e.target.value })} />
+            <input type="number" min="0" step="0.01" placeholder="Price ₹" value={pick.customRate} onChange={(e) => setPick({ ...pick, customRate: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
             <button type="button" className="btn small" onClick={addCustom}>+ Add</button>
           </div>
         </details>
@@ -318,6 +515,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
                 <td colSpan="3" className="num muted">Discount (₹)</td>
                 <td className="num"><input className="mini wide" type="number" min="0" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} /></td><td></td>
               </tr>
+              {used > 0 && <tr><td colSpan="3" className="num muted">Loyalty points redeemed</td><td className="num">− {inr(used)}</td><td></td></tr>}
               <tr className="total"><td colSpan="3" className="num">Total</td><td className="num">{inr(amount)}</td><td></td></tr>
             </tbody>
           </table>
@@ -331,6 +529,25 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         </div>
       )}
 
+      {cid && (
+        <div className="redeem-box">
+          <div className="redeem-head">
+            <b>★ Redeem loyalty points</b>
+            <span className="muted small">{available == null ? 'Checking points…' : <>Available: <b className="pts">{available}</b> points (= {inr(available)})</>}</span>
+          </div>
+          {!redeemOk ? (
+            <div className="muted small">To redeem points, run <b>loyalty-setup.sql</b> in Supabase → SQL Editor, then refresh.</div>
+          ) : (
+            <div className="item-add">
+              <label className="inline">Use points<input className="price-in" type="number" min="0" max={maxRedeem} step="1" placeholder="0" value={redeem}
+                onChange={(e) => setRedeem(e.target.value)} disabled={!maxRedeem && !redeem} /></label>
+              <button type="button" className="btn small" disabled={!maxRedeem} onClick={() => setRedeem(String(maxRedeem))}>Use all ({maxRedeem})</button>
+              {used > 0 && <button type="button" className="link" onClick={() => setRedeem('')}>Clear</button>}
+              {used > 0 && <span className="small">− {inr(used)} off</span>}
+            </div>
+          )}
+        </div>
+      )}
       <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>
       {!fullPaid && (
         <label>Amount paid (₹)<input type="number" min="0" step="0.01" value={f.paid_amount} onChange={set('paid_amount')} /></label>
@@ -343,7 +560,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         <label className="check"><input type="checkbox" checked={logVisit} onChange={(e) => setLogVisit(e.target.checked)} /> Also count this as a visit on the bill date</label>
       )}
       <ErrorBox error={error} />
-      <FormButtons busy={busy} onCancel={onCancel} label={bill ? 'Update bill' : 'Save bill'} />
+      <div className="save-bar">
+        <span className="muted small">Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 || used > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
+        <div className="form-actions">
+          <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
+        </div>
+      </div>
     </form>
   );
 }
@@ -352,19 +575,25 @@ function BillSaved({ bill, onDone }) {
   const [printing, setPrinting] = useState(false);
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
+  const [balance, setBalance] = useState(null);
   useEffect(() => {
+    customerPoints(bill.customer_id).then(setBalance).catch(() => {});
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
-  const wa = c && waSend(c.phone, waText('thanks', { customer: c, shop, bill }));
+  const wa = c && shop && waSend(c.phone, billText(bill, c, shop));
+  const waPts = c && balance != null && waSend(c.phone, waText('points', { customer: c, shop, points: balance, earned: billPoints(bill) }));
   return (
     <div className="saved">
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
+      <p className="points-earned">★ {billPoints(bill) ? `+${billPoints(bill)} points earned` : 'No points on this bill (discount given)'}{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
+      {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
-        <button className="btn" onClick={() => setPrinting(true)}>Print bill</button>
-        {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
+        <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
+        {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send bill on WhatsApp</a>}
+        {waPts && <a className="btn" href={waPts} target="_blank" rel="noreferrer">Send points on WhatsApp</a>}
         <button className="btn primary" onClick={onDone}>Done</button>
       </div>
       {printing && <PrintBill bill={bill} onClose={() => setPrinting(false)} />}
@@ -372,66 +601,175 @@ function BillSaved({ bill, onDone }) {
   );
 }
 
+const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const num = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const shortDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+
+function Receipt({ bill, c, shop, innerRef, small }) {
+  const { lines, ok } = parseItems(bill.items);
+  const items = lines.filter((l) => l.name !== 'Discount');
+  const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
+  return (
+    <div className={`receipt${small ? ' small' : ''}`} ref={innerRef}>
+      <div className="r-top">
+        <div className="r-brand">
+          <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+          <div>
+            <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+            {shop?.address && <div className="r-addr">{shop.address}</div>}
+            {shop?.phone && <div className="r-addr">Phone: {shop.phone}</div>}
+          </div>
+        </div>
+        <div className="r-doc">
+          <div className="r-title">Estimate</div>
+          <div className="r-no">{billNo(bill)}</div>
+        </div>
+      </div>
+      <div className="r-meta">
+        <div>
+          <div className="r-label">BILLED TO</div>
+          <div className="r-name">{c?.name || ''}</div>
+          {c?.phone && <div className="r-sub">{c.phone}</div>}
+        </div>
+        <div className="r-right">
+          <div className="r-label">DATE</div>
+          <div className="r-date">{small ? shortDate(bill.bill_date) : longDate(bill.bill_date)}</div>
+        </div>
+      </div>
+      <table className="r-table">
+        <thead><tr><th>ITEM</th><th className="num">QTY</th><th className="num">RATE</th><th className="num">{small ? 'AMT' : 'AMOUNT'}</th></tr></thead>
+        <tbody>
+          {ok && items.length ? items.map((l, i) => (
+            <tr key={i}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{small ? num(l.rate) : rs(l.rate)}</td><td className="num">{small ? num(l.qty * l.rate) : rs(l.qty * l.rate)}</td></tr>
+          )) : (
+            <tr><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{small ? num(bill.amount) : rs(bill.amount)}</td><td className="num">{small ? num(bill.amount) : rs(bill.amount)}</td></tr>
+          )}
+        </tbody>
+      </table>
+      <div className="r-totals">
+        {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
+        {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
+        {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
+        <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
+        {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
+      </div>
+      {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
+      <div className="r-end">
+        {termsLines(shop?.terms).length > 0 && (
+          <div className="r-terms">
+            <div className="r-terms-title">Terms &amp; Conditions</div>
+            <ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol>
+          </div>
+        )}
+        {shop?.bill_footer && <div className="r-foot">{shop.bill_footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+// 4 bills (3.5 × 5 in each) on one A4 sheet. `slots` = array of bills or null (empty spot).
+function Sheets4({ slots, cmap, shop }) {
+  const pages = [];
+  for (let i = 0; i < slots.length; i += 4) pages.push(slots.slice(i, i + 4));
+  return pages.map((pg, pi) => (
+    <div className="sheet4" key={pi}>
+      {[0, 1, 2, 3].map((k) => (
+        <div className="q4" key={k}>{pg[k] && <Receipt bill={pg[k]} c={cmap[pg[k].customer_id]} shop={shop} small />}</div>
+      ))}
+    </div>
+  ));
+}
+
+const PAGE_A4 = <style>{'@page { size: A4 portrait; margin: 0; }'}</style>;
+const PAGE_SLIP = <style>{'@page { size: 3.5in 5in; margin: 0; }'}</style>;
+const getPrintSize = () => { try { const v = localStorage.getItem('sk-print-size'); return ['full', 'quarter', 'slip'].includes(v) ? v : 'full'; } catch { return 'full'; } };
+
 export function PrintBill({ bill, onClose }) {
+  const receiptRef = useRef(null);
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
+  const [size, setSizeState] = useState(getPrintSize);
+  const [pos, setPos] = useState(0);
+  const setSize = (s) => { setSizeState(s); try { localStorage.setItem('sk-print-size', s); } catch { /* ignore */ } };
   useEffect(() => {
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
-  const { lines, ok } = parseItems(bill.items);
-  const items = lines.filter((l) => l.name !== 'Discount');
-  const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
+  useEffect(() => {
+    const old = document.title;
+    document.title = `Estimate ${billNo(bill)}`;
+    return () => { document.title = old; };
+  }, [bill]);
+  const slots = [null, null, null, null];
+  slots[pos] = bill;
 
   return createPortal(
     <div className="print-root">
+      {size === 'quarter' && PAGE_A4}
+      {size === 'slip' && PAGE_SLIP}
       <div className="print-toolbar no-print">
+        <div className="tabs">
+          <button className={size === 'full' ? 'active' : ''} onClick={() => setSize('full')}>Full A4</button>
+          <button className={size === 'quarter' ? 'active' : ''} onClick={() => setSize('quarter')}>4 per A4</button>
+          <button className={size === 'slip' ? 'active' : ''} onClick={() => setSize('slip')}>3.5 × 5 in paper</button>
+        </div>
+        {size === 'quarter' && (
+          <div className="pos-pick" title="Where on the A4 sheet this bill prints">
+            <span className="muted small">Spot</span>
+            {[0, 1, 2, 3].map((p) => <button key={p} className={pos === p ? 'on' : ''} onClick={() => setPos(p)}>{p + 1}</button>)}
+          </div>
+        )}
+        <span className="spacer" />
+        <ShareBill bill={bill} customer={c} receiptRef={size === 'full' ? receiptRef : null} />
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
-      <div className="receipt">
-        <div className="r-head">
-          <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
-          {shop?.address && <div>{shop.address}</div>}
-          {shop?.phone && <div>Phone: {shop.phone}</div>}
-          {shop?.gstin && <div>GSTIN: {shop.gstin}</div>}
-        </div>
-        <div className="r-meta">
-          <div><b>Bill no:</b> {billNo(bill)}</div>
-          <div><b>Date:</b> {fmtDate(bill.bill_date)}</div>
-          <div><b>Customer:</b> {c?.name || ''}</div>
-          {c?.phone && <div><b>Phone:</b> {c.phone}</div>}
-        </div>
-        <table className="r-table">
-          <thead><tr><th>#</th><th>Item</th><th className="num">Qty</th><th className="num">Rate</th><th className="num">Amount</th></tr></thead>
-          <tbody>
-            {ok && items.length ? items.map((l, i) => (
-              <tr key={i}><td>{i + 1}</td><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{inr(l.rate)}</td><td className="num">{inr(l.qty * l.rate)}</td></tr>
-            )) : (
-              <tr><td>1</td><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{inr(bill.amount)}</td><td className="num">{inr(bill.amount)}</td></tr>
-            )}
-          </tbody>
-        </table>
-        <div className="r-totals">
-          {disc > 0 && <><div>Subtotal</div><div>{inr(Number(bill.amount) + disc)}</div><div>Discount</div><div>− {inr(disc)}</div></>}
-          <div className="r-grand">Total</div><div className="r-grand">{inr(bill.amount)}</div>
-          <div>Paid</div><div>{inr(bill.paid_amount)}</div>
-          {dueOf(bill) > 0 && <><div><b>Balance due</b></div><div><b>{inr(dueOf(bill))}</b></div></>}
-        </div>
-        {bill.notes && <div className="r-notes">Note: {bill.notes}</div>}
-        <div className="r-foot">{shop?.bill_footer || 'Thank you for shopping with us!'}</div>
-      </div>
+      {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
+      {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
+      {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
+      {size === 'quarter' && <Sheets4 slots={slots} cmap={{ [bill.customer_id]: c }} shop={shop} />}
+      {size === 'slip' && <div className="slip"><Receipt bill={bill} c={c} shop={shop} small /></div>}
     </div>,
     document.body
   );
 }
 
-export function WhatsAppMenu({ customer, due = 0, small = false, only }) {
+export function PrintSheet({ bills, onClose }) {
+  const [cmap, setCmap] = useState(null);
+  const [shop, setShop] = useState(null);
+  useEffect(() => {
+    customerMap().then(setCmap).catch(() => setCmap({}));
+    loadSettings().then(setShop);
+  }, []);
+  useEffect(() => {
+    const old = document.title;
+    document.title = `Estimates (${bills.length})`;
+    return () => { document.title = old; };
+  }, [bills]);
+  const ready = cmap && shop;
+  return createPortal(
+    <div className="print-root">
+      {PAGE_A4}
+      <div className="print-toolbar no-print">
+        <span className="muted">{bills.length} bill{bills.length === 1 ? '' : 's'} · {Math.ceil(bills.length / 4)} A4 sheet{bills.length > 4 ? 's' : ''}</span>
+        <span className="spacer" />
+        <button className="btn primary" onClick={() => window.print()} disabled={!ready}>Print / Save as PDF</button>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+      <p className="print-hint no-print">Print settings: Paper A4 · Portrait · Margins None · Scale 100%. Cut along the dashed lines.</p>
+      {ready ? <Sheets4 slots={bills} cmap={cmap} shop={shop} /> : <Loading />}
+    </div>,
+    document.body
+  );
+}
+
+export function WhatsAppMenu({ customer, due = 0, points, small = false, only }) {
   const [open, setOpen] = useState(false);
   const [shop, setShop] = useState(null);
   useEffect(() => { if (open && !shop) loadSettings().then(setShop); }, [open, shop]);
   if (!waLink(customer?.phone)) return null;
-  const list = WA_TEMPLATES.filter((t) => (only ? only.includes(t.key) : true)).filter((t) => t.key !== 'due' || due > 0);
+  const list = WA_TEMPLATES.filter((t) => (only ? only.includes(t.key) : true)).filter((t) => t.key !== 'due' || due > 0).filter((t) => t.key !== 'points' || points != null);
   return (
     <div className="menu-wrap">
       <button type="button" className={`btn ${small ? 'small' : ''}`} onClick={() => setOpen(!open)}>WhatsApp ▾</button>
@@ -440,7 +778,7 @@ export function WhatsAppMenu({ customer, due = 0, small = false, only }) {
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
           <div className="menu">
             {list.map((t) => (
-              <a key={t.key} href={waSend(customer.phone, waText(t.key, { customer, shop, due }))} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>{t.label}</a>
+              <a key={t.key} href={waSend(customer.phone, waText(t.key, { customer, shop, due, points }))} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>{t.label}</a>
             ))}
             <a href={waLink(customer.phone)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>Blank message</a>
           </div>
@@ -487,9 +825,9 @@ export function BarChart({ data, format = (v) => v, label }) {
   );
 }
 
-export function FollowupForm({ customerId, user, onSaved, onCancel }) {
-  const [cid, setCid] = useState(customerId || '');
-  const [f, setF] = useState({ due_date: addDays(1), notes: '' });
+export function FollowupForm({ followup, customerId, user, onSaved, onCancel }) {
+  const [cid, setCid] = useState(followup?.customer_id || customerId || '');
+  const [f, setF] = useState({ due_date: followup?.due_date || addDays(1), notes: followup?.notes || '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const { busy, error, run } = useSave();
 
@@ -497,22 +835,152 @@ export function FollowupForm({ customerId, user, onSaved, onCancel }) {
     e.preventDefault();
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
-      must(await supabase.from('followups').insert(clean({ customer_id: cid, ...f, status: 'pending', created_by: user.id })));
+      if (!f.due_date) throw new Error('Please enter the follow-up date (dd/mm/yyyy).');
+      if (followup) must(await supabase.from('followups').update(clean({ customer_id: cid, ...f })).eq('id', followup.id));
+      else must(await supabase.from('followups').insert(clean({ customer_id: cid, ...f, status: 'pending', created_by: user.id })));
       onSaved();
     });
   };
 
   return (
     <form onSubmit={submit} className="form">
-      {!customerId && <label>Customer *<CustomerPicker value={cid} onChange={setCid} /></label>}
-      <label>Follow-up date *<input type="date" required value={f.due_date} onChange={set('due_date')} /></label>
+      {!customerId && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus={!followup} onPicked={() => document.querySelector('.modal .date-input input')?.focus()} /></div>}
+      {cid && <CustomerNote customerId={cid} />}
+      <div className="field"><span>Follow-up date *</span><DateInput value={f.due_date} onChange={(v) => setF((x) => ({ ...x, due_date: v }))} required /></div>
       <label>What to follow up about<textarea rows="2" placeholder="e.g. Call about new collection" value={f.notes} onChange={set('notes')} /></label>
       <ErrorBox error={error} />
-      <FormButtons busy={busy} onCancel={onCancel} label="Save follow-up" />
+      <FormButtons busy={busy} onCancel={onCancel} label={followup ? 'Update follow-up' : 'Save follow-up'} />
     </form>
   );
 }
 
 export function MonthPicker({ value, onChange }) {
   return <input type="month" className="month" value={value} onChange={(e) => e.target.value && onChange(e.target.value)} />;
+}
+
+export function PinInput({ value, onChange, autoFocus }) {
+  // A plain text box shown as dots, so the browser never saves or auto-fills the PIN like a password
+  const [name] = useState(() => `pin-${Math.random().toString(36).slice(2)}`);
+  return (
+    <input className="pin-input" type="text" name={name} inputMode="numeric" autoComplete="off" autoCorrect="off" spellCheck={false}
+      data-lpignore="true" data-1p-ignore="true" data-form-type="other" maxLength={4} placeholder="••••"
+      value={value} autoFocus={autoFocus} onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+  );
+}
+
+export function DeleteBillModal({ bill, customerName, onDeleted, onClose }) {
+  const [pin, setPin] = useState('');
+  const { busy, error, run } = useSave();
+  const submit = (e) => {
+    e.preventDefault();
+    run(async () => { await deleteBillWithPin(bill.id, pin); onDeleted(); });
+  };
+  return (
+    <Modal title="Delete bill" onClose={onClose}>
+      <form className="form" onSubmit={submit} autoComplete="off">
+        <div className="delete-summary">
+          <div><b>{customerName || 'Customer'}</b> · {fmtDate(bill.bill_date)}</div>
+          <div className="muted small">{billNo(bill)} · {inr(bill.amount)}</div>
+        </div>
+        <p className="muted small">This cannot be undone. Enter the 4-digit delete PIN to confirm. Forgot it? The owner can reset it in <b>Settings → Delete PIN</b>.</p>
+        <label>Delete PIN<PinInput value={pin} onChange={setPin} autoFocus /></label>
+        <ErrorBox error={error} />
+        <div className="form-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn danger-btn" disabled={busy || pin.length !== 4}>{busy ? 'Deleting…' : 'Delete bill'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+
+// Send a bill to the customer's WhatsApp (as a message), or share it as an image
+export function ShareBill({ bill, customer, small, receiptRef }) {
+  const [c, setC] = useState(customer || null);
+  const [shop, setShop] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    loadSettings().then(setShop);
+    if (!customer) supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+  }, [bill.customer_id, customer]);
+  const link = c && shop && waSend(c.phone, billText(bill, c, shop));
+  const shareImage = async () => {
+    const el = receiptRef?.current;
+    if (!el) return;
+    setBusy(true);
+    try {
+      const { default: html2canvas } = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/+esm');
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      const file = new File([blob], `${billNo(bill)}.png`, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Estimate ${billNo(bill)}` });
+      } else {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+        alert('The bill image was downloaded. Attach it in WhatsApp (the chat opens next).');
+        if (link) window.open(link, '_blank');
+      }
+    } catch (e) { if (e?.name !== 'AbortError') alert('Could not create the image: ' + e.message); }
+    finally { setBusy(false); }
+  };
+  if (c && !waLink(c.phone)) return <span className="muted small">No mobile number</span>;
+  return (
+    <>
+      <a className={`btn wa-btn ${small ? 'small' : ''}`} href={link || '#'} target="_blank" rel="noreferrer" onClick={(e) => { if (!link) e.preventDefault(); }}>
+        <WaIcon /> Share on WhatsApp
+      </a>
+      {receiptRef && <button type="button" className={`btn ${small ? 'small' : ''}`} disabled={busy} onClick={shareImage}>{busy ? 'Preparing…' : 'Share as image'}</button>}
+    </>
+  );
+}
+export const WaIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.3c0-.1-.2-.2-.4-.3z"/></svg>
+);
+
+
+// Shows the customer's saved notes (and tags) so staff remember them while billing
+export function CustomerNote({ customerId }) {
+  const [c, setC] = useState(null);
+  useEffect(() => {
+    let live = true;
+    supabase.from('customers').select('*').eq('id', customerId).single().then(({ data }) => { if (live) setC(data); });
+    return () => { live = false; };
+  }, [customerId]);
+  if (!c || (!c.notes && !(c.tags || []).length)) return null;
+  return (
+    <div className="cust-note">
+      <span className="cust-note-icon">📝</span>
+      <div>
+        <div className="cust-note-title">Note about {c.name} <Tags tags={c.tags} /></div>
+        {c.notes && <div className="cust-note-text">{c.notes}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Follow-up row actions: WhatsApp reminder, Edit, Mark done/Reopen, Delete
+export function FollowupActions({ f, customer, onEdit, onChanged }) {
+  const [shop, setShop] = useState(null);
+  useEffect(() => { loadSettings().then(setShop); }, []);
+  const setStatus = async (status) => {
+    const { error } = await supabase.from('followups').update({ status }).eq('id', f.id);
+    if (error) alert(error.message); else onChanged();
+  };
+  const remove = async () => {
+    if (!window.confirm('Delete this follow-up?')) return;
+    const { error } = await supabase.from('followups').delete().eq('id', f.id);
+    if (error) alert(error.message); else onChanged();
+  };
+  const wa = customer && waSend(customer.phone, waText('reminder', { customer, shop, followup: f }));
+  const done = f.status === 'done';
+  return (
+    <div className="fu-actions">
+      {!done && wa && <a className="btn small wa-btn" href={wa} target="_blank" rel="noreferrer"><WaIcon /> Remind</a>}
+      {done ? <button className="btn small" onClick={() => setStatus('pending')}>Reopen</button>
+        : <button className="btn small" onClick={() => setStatus('done')}>✓ Mark done</button>}
+      <button className="link" onClick={onEdit}>Edit</button>
+      <button className="link danger" onClick={remove}>Delete</button>
+    </div>
+  );
 }

@@ -120,7 +120,7 @@ export const itemsSummary = (text) => {
   if (!ok) return (text || '').split('\n').filter(Boolean).join(', ');
   return lines.filter((l) => l.name !== 'Discount').map((l) => `${l.qty} × ${l.name}`).join(', ');
 };
-export const billNo = (b) => 'SK-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
+export const billNo = (b) => 'EST-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
 
 // ---------- Shop settings & products ----------
 const DEFAULT_SETTINGS = { shop_name: 'Sri Kangna', address: '', phone: '', gstin: '', bill_footer: 'Thank you for shopping with us!' };
@@ -128,9 +128,17 @@ let settingsCache = null;
 export async function loadSettings(force = false) {
   if (settingsCache && !force) return settingsCache;
   const { data, error } = await supabase.from('shop_settings').select('*').eq('id', 1).maybeSingle();
-  settingsCache = { ...DEFAULT_SETTINGS, ...(error ? {} : data || {}), _missing: Boolean(error) };
+  settingsCache = { ...DEFAULT_SETTINGS, ...(error ? {} : data || {}), _missing: Boolean(error), _hasTerms: Boolean(data && 'terms' in data) };
   return settingsCache;
 }
+
+export const DEFAULT_TERMS = [
+  'Goods once sold will not be taken back.',
+  'Exchange only within 7 days with this estimate and original tags.',
+  'No exchange or return on sale / discounted items.',
+  'Subject to local jurisdiction.',
+].join('\n');
+export const termsLines = (t) => (t || '').split('\n').map((x) => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
 
 export async function loadProducts() {
   const { data, error } = await supabase.from('products').select('*').order('name');
@@ -154,19 +162,25 @@ export const WA_TEMPLATES = [
   { key: 'birthday', label: 'Birthday wish' },
   { key: 'anniversary', label: 'Anniversary wish' },
   { key: 'collection', label: 'New collection arrived' },
+  { key: 'points', label: 'Loyalty points balance' },
 ];
-export function waText(key, { customer, shop, due = 0, bill } = {}) {
+const niceDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : '');
+export function waText(key, { customer, shop, due = 0, bill, points, earned, followup } = {}) {
   const name = (customer?.name || '').split(' ')[0] || 'there';
   const s = shop?.shop_name || 'Sri Kangna';
   switch (key) {
     case 'thanks':
-      return `Hi ${name}, thank you for shopping at ${s}!${bill ? ` Your bill ${billNo(bill)} of ${inr(bill.amount)}${dueOf(bill) > 0 ? ` (balance due ${inr(dueOf(bill))})` : ''} is recorded.` : ''} We hope to see you again soon.`;
+      return `Hi ${name}, thank you for shopping at ${s}!${bill ? ` Your estimate ${billNo(bill)} of ${inr(bill.amount)}${dueOf(bill) > 0 ? ` (balance due ${inr(dueOf(bill))})` : ''} is recorded.` : ''} We hope to see you again soon.`;
     case 'due':
       return `Hi ${name}, this is a gentle reminder from ${s} that ${inr(due)} is pending on your account. Please clear it at your convenience. Thank you!`;
     case 'birthday':
       return `Happy Birthday ${name}! 🎉 Wishing you a wonderful year ahead. Visit ${s} this week for a special birthday surprise!`;
     case 'anniversary':
       return `Happy Anniversary ${name}! 💐 Warm wishes from all of us at ${s}.`;
+    case 'reminder':
+      return `Hi ${name}, this is a friendly reminder from ${s}${followup?.notes ? ` about: ${followup.notes}` : ''}.${followup?.due_date && followup.due_date > today() ? ` We look forward to seeing you on ${niceDate(followup.due_date)}.` : ''} Please feel free to reply here if you have any questions. Thank you!`;
+    case 'points':
+      return `Hi ${name}, you have ${points ?? 0} loyalty points at ${s} (1 point = Rs. 1). Use them as a discount on your next purchase!${earned ? ` You earned ${earned} points on your purchase today.` : ''}`;
     case 'collection':
       return `Hi ${name}, our new collection has just arrived at ${s}! Drop by to see it before it's gone.`;
     default:
@@ -177,4 +191,103 @@ export function waSend(phone, text) {
   const base = waLink(phone);
   if (!base) return null;
   return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+// Insert visits; if the database rejects the visit type (check constraint), retry without it
+export async function insertVisits(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  let { error } = await supabase.from('visits').insert(list);
+  if (error && (error.code === '23514' || /visit_type/i.test(error.message))) {
+    ({ error } = await supabase.from('visits').insert(list.map(({ visit_type, ...r }) => r)));
+  }
+  if (error) throw error;
+}
+
+// ---------- PIN-protected bill delete (see delete-pin-setup.sql) ----------
+const pinSetupMsg = 'The delete PIN is not set up yet. Run delete-pin-setup.sql in Supabase → SQL Editor.';
+const pinErr = (error) => new Error(/function .*does not exist|Could not find the function/i.test(error.message) ? pinSetupMsg : error.message);
+export async function hasDeletePin() {
+  const { data, error } = await supabase.rpc('has_delete_pin');
+  if (error) throw pinErr(error);
+  return Boolean(data);
+}
+export async function setDeletePin(oldPin, newPin) {
+  const { error } = await supabase.rpc('set_delete_pin', { old_pin: oldPin || null, new_pin: newPin });
+  if (error) throw pinErr(error);
+}
+export async function deleteBillWithPin(billId, pin) {
+  const { error } = await supabase.rpc('delete_bill_with_pin', { p_bill: billId, p_pin: pin });
+  if (error) throw pinErr(error);
+}
+
+// ---------- PIN recovery by email code (see pin-recovery-setup.sql) ----------
+const recoverySetupMsg = 'PIN recovery is not set up yet. Run pin-recovery-setup.sql in Supabase → SQL Editor.';
+const recErr = (error) => new Error(/function .*does not exist|Could not find the function/i.test(error.message) ? recoverySetupMsg : error.message);
+export async function pinOwnerInfo() {
+  const { data, error } = await supabase.rpc('pin_owner_info');
+  if (error) throw recErr(error);
+  return data || {};
+}
+export async function sendPinResetCode(email) {
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  if (error) throw error;
+}
+export async function verifyPinResetCode(email, token) {
+  const { error } = await supabase.auth.verifyOtp({ email, token: token.trim(), type: 'email' });
+  if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Send a new one.' : error.message);
+}
+export async function resetDeletePin(newPin) {
+  const { error } = await supabase.rpc('reset_delete_pin', { new_pin: newPin });
+  if (error) throw recErr(error);
+}
+
+// ---------- Loyalty points: 5% of every bill amount (rounded down) ----------
+export const LOYALTY_RATE = 0.05;
+export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
+export const redeemedOf = (b) => Number(b.points_redeemed || 0);
+// A bill with any discount (manual discount or points redeemed) earns no points
+export const hasDiscount = (b) => redeemedOf(b) > 0 || /(^|\n)\s*\d+(\.\d+)?\s*[×x]\s*Discount\s*@/i.test(b.items || '');
+export const billPoints = (b) => (hasDiscount(b) ? 0 : pointsFor(b.amount));
+export const pointsEarned = (bills) => bills.reduce((s, b) => s + billPoints(b), 0);
+export const pointsUsed = (bills) => bills.reduce((s, b) => s + redeemedOf(b), 0);
+// Balance = points earned on all bills − points redeemed on bills (1 point = Rs. 1)
+export const pointsTotal = (bills) => pointsEarned(bills) - pointsUsed(bills);
+export async function customerBills(customerId) {
+  return fetchAll(() => supabase.from('bills').select('*').eq('customer_id', customerId));
+}
+export async function customerPoints(customerId, excludeBillId) {
+  const bills = await customerBills(customerId);
+  return pointsTotal(bills.filter((b) => b.id !== excludeBillId));
+}
+let redeemCol = null;
+export async function hasRedeemColumn() {
+  if (redeemCol !== null) return redeemCol;
+  const { error } = await supabase.from('bills').select('points_redeemed').limit(1);
+  redeemCol = !error;
+  return redeemCol;
+}
+
+// ---------- Bill as a WhatsApp message ----------
+export function billText(bill, customer, shop) {
+  const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const { lines, ok } = parseItems(bill.items);
+  const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+  const disc = ok ? -(lines.find((l) => l.name === 'Discount')?.rate || 0) : 0;
+  const red = Number(bill.points_redeemed || 0);
+  const out = [];
+  out.push(`*${shop?.shop_name || 'Sri Kangna'}*`);
+  out.push(`Estimate ${billNo(bill)} · ${fmtDate(bill.bill_date)}`);
+  out.push('');
+  out.push(`Dear ${customer?.name || 'Customer'},`);
+  out.push('Here are your purchase details:');
+  out.push('');
+  if (items.length) items.forEach((l, i) => out.push(`${i + 1}. ${l.name} — ${l.qty} × ${rs(l.rate)} = ${rs(l.qty * l.rate)}`));
+  else out.push(`• ${bill.items || 'Purchase'} — ${rs(bill.amount)}`);
+  if (disc > 0 || red > 0) out.push('', `Subtotal: ${rs(Number(bill.amount) + disc + red)}`);
+  if (disc > 0) out.push(`Discount: − ${rs(disc)}`);
+  if (red > 0) out.push(`Loyalty points redeemed: − ${rs(red)}`);
+  out.push(`*Total: ${rs(bill.amount)}*`);
+  if (dueOf(bill) > 0) out.push(`Paid: ${rs(bill.paid_amount)}`, `Balance due: ${rs(dueOf(bill))}`);
+  if (shop?.bill_footer) out.push('', shop.bill_footer);
+  return out.join('\n');
 }

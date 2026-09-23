@@ -10,6 +10,7 @@ import Followups from './pages/Followups';
 import Reports from './pages/Reports';
 import Items from './pages/Items';
 import Settings from './pages/Settings';
+import Campaigns from './pages/Campaigns';
 
 const PAGES = [
   ['dashboard', 'Dashboard'],
@@ -17,6 +18,7 @@ const PAGES = [
   ['visits', 'Visits'],
   ['bills', 'Bills'],
   ['followups', 'Follow-ups'],
+  ['campaigns', 'Campaigns'],
   ['reports', 'Reports'],
   ['items', 'Items'],
   ['settings', 'Settings'],
@@ -83,6 +85,7 @@ export default function App() {
         {page === 'reports' && <Reports {...props} />}
         {page === 'items' && <Items {...props} />}
         {page === 'settings' && <Settings {...props} />}
+        {page === 'campaigns' && <Campaigns {...props} />}
       </main>
     </div>
   );
