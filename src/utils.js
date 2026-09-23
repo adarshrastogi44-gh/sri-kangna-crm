@@ -162,8 +162,9 @@ export const WA_TEMPLATES = [
   { key: 'birthday', label: 'Birthday wish' },
   { key: 'anniversary', label: 'Anniversary wish' },
   { key: 'collection', label: 'New collection arrived' },
+  { key: 'points', label: 'Loyalty points balance' },
 ];
-export function waText(key, { customer, shop, due = 0, bill } = {}) {
+export function waText(key, { customer, shop, due = 0, bill, points, earned } = {}) {
   const name = (customer?.name || '').split(' ')[0] || 'there';
   const s = shop?.shop_name || 'Sri Kangna';
   switch (key) {
@@ -175,6 +176,8 @@ export function waText(key, { customer, shop, due = 0, bill } = {}) {
       return `Happy Birthday ${name}! 🎉 Wishing you a wonderful year ahead. Visit ${s} this week for a special birthday surprise!`;
     case 'anniversary':
       return `Happy Anniversary ${name}! 💐 Warm wishes from all of us at ${s}.`;
+    case 'points':
+      return `Hi ${name}, you have ${points ?? 0} loyalty points at ${s} (1 point = Rs. 1). Use them as a discount on your next purchase!${earned ? ` You earned ${earned} points on your purchase today.` : ''}`;
     case 'collection':
       return `Hi ${name}, our new collection has just arrived at ${s}! Drop by to see it before it's gone.`;
     default:
@@ -239,7 +242,10 @@ export async function resetDeletePin(newPin) {
 export const LOYALTY_RATE = 0.05;
 export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
 export const redeemedOf = (b) => Number(b.points_redeemed || 0);
-export const pointsEarned = (bills) => bills.reduce((s, b) => s + pointsFor(b.amount), 0);
+// A bill with any discount (manual discount or points redeemed) earns no points
+export const hasDiscount = (b) => redeemedOf(b) > 0 || /(^|\n)\s*\d+(\.\d+)?\s*[×x]\s*Discount\s*@/i.test(b.items || '');
+export const billPoints = (b) => (hasDiscount(b) ? 0 : pointsFor(b.amount));
+export const pointsEarned = (bills) => bills.reduce((s, b) => s + billPoints(b), 0);
 export const pointsUsed = (bills) => bills.reduce((s, b) => s + redeemedOf(b), 0);
 // Balance = points earned on all bills − points redeemed on bills (1 point = Rs. 1)
 export const pointsTotal = (bills) => pointsEarned(bills) - pointsUsed(bills);

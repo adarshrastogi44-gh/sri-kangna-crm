@@ -60,7 +60,7 @@ function periodStart(p) {
   return addDays(-(Number(p) - 1));
 }
 
-export default function Dashboard({ user, openCustomer }) {
+export default function Dashboard({ user, openCustomer, go }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   const [modal, setModal] = useState(null);
@@ -154,6 +154,7 @@ export default function Dashboard({ user, openCustomer }) {
           <p className="muted dash-sub">Overview of today's activity across the store.</p>
         </div>
         <div className="actions">
+          <button className="btn" onClick={() => go('campaigns')}>📣 Campaigns</button>
           <button className="btn" onClick={() => setModal('customer')}>+ Customer</button>
           <button className="btn" onClick={() => setModal('visit')}>+ Visit</button>
           <button className="btn primary" onClick={() => setModal('bill')}>+ Add Bill</button>

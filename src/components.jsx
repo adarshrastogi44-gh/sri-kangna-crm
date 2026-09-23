@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, billPoints, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -513,7 +513,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">+{pointsFor(amount)} pts</span></>} · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 || used > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
@@ -534,16 +534,18 @@ function BillSaved({ bill, onDone }) {
     loadSettings().then(setShop);
   }, [bill.customer_id]);
   const wa = c && waSend(c.phone, waText('thanks', { customer: c, shop, bill }));
+  const waPts = c && balance != null && waSend(c.phone, waText('points', { customer: c, shop, points: balance, earned: billPoints(bill) }));
   return (
     <div className="saved">
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
-      <p className="points-earned">★ +{pointsFor(bill.amount)} points earned{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
+      <p className="points-earned">★ {billPoints(bill) ? `+${billPoints(bill)} points earned` : 'No points on this bill (discount given)'}{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
         {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
+        {waPts && <a className="btn" href={waPts} target="_blank" rel="noreferrer">Send points on WhatsApp</a>}
         <button className="btn primary" onClick={onDone}>Done</button>
       </div>
       {printing && <PrintBill bill={bill} onClose={() => setPrinting(false)} />}
@@ -621,7 +623,6 @@ export function PrintBill({ bill, onClose }) {
           <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
           {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
         </div>
-        <div className="r-points">★ Loyalty points earned: <b>{pointsFor(bill.amount)}</b>{redeemedOf(bill) > 0 && <> · Used: <b>{redeemedOf(bill)}</b></>}{balance != null && <> · Balance: <b>{balance}</b> points (1 point = Rs. 1)</>}</div>
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
         {termsLines(shop?.terms).length > 0 && (
           <div className="r-terms">
@@ -636,12 +637,12 @@ export function PrintBill({ bill, onClose }) {
   );
 }
 
-export function WhatsAppMenu({ customer, due = 0, small = false, only }) {
+export function WhatsAppMenu({ customer, due = 0, points, small = false, only }) {
   const [open, setOpen] = useState(false);
   const [shop, setShop] = useState(null);
   useEffect(() => { if (open && !shop) loadSettings().then(setShop); }, [open, shop]);
   if (!waLink(customer?.phone)) return null;
-  const list = WA_TEMPLATES.filter((t) => (only ? only.includes(t.key) : true)).filter((t) => t.key !== 'due' || due > 0);
+  const list = WA_TEMPLATES.filter((t) => (only ? only.includes(t.key) : true)).filter((t) => t.key !== 'due' || due > 0).filter((t) => t.key !== 'points' || points != null);
   return (
     <div className="menu-wrap">
       <button type="button" className={`btn ${small ? 'small' : ''}`} onClick={() => setOpen(!open)}>WhatsApp ▾</button>
@@ -650,7 +651,7 @@ export function WhatsAppMenu({ customer, due = 0, small = false, only }) {
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
           <div className="menu">
             {list.map((t) => (
-              <a key={t.key} href={waSend(customer.phone, waText(t.key, { customer, shop, due }))} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>{t.label}</a>
+              <a key={t.key} href={waSend(customer.phone, waText(t.key, { customer, shop, due, points }))} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>{t.label}</a>
             ))}
             <a href={waLink(customer.phone)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>Blank message</a>
           </div>

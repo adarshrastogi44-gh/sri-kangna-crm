@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, BillForm, CustomerForm, DeleteBillModal, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
-import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
+import { billPoints, dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
   const [d, setD] = useState(null);
@@ -51,7 +51,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       <div className="page-head">
         <h1>{c.name} <Tags tags={c.tags} /></h1>
         <div className="actions">
-          <WhatsAppMenu customer={c} due={due} />
+          <WhatsAppMenu customer={c} due={due} points={pointsTotal(bills)} />
           <button className="btn" onClick={() => setModal('edit')}>Edit</button>
           <button className="btn" onClick={() => setModal('followup')}>+ Follow-up</button>
           <button className="btn" onClick={() => setModal('visit')}>+ Visit</button>
@@ -89,7 +89,7 @@ export default function CustomerDetail({ id, user, onBack }) {
                   <td className="hide-sm">{itemsSummary(b.items) || '—'}</td>
                   <td className="num">{inr(b.amount)}</td>
                   <td className="num">{inr(b.paid_amount)}</td>
-                  <td className="num"><span className="pts">+{pointsFor(b.amount)}</span>{redeemedOf(b) > 0 && <div className="pts-used">−{redeemedOf(b)} used</div>}</td>
+                  <td className="num"><span className="pts">{billPoints(b) ? `+${billPoints(b)}` : '0'}</span>{redeemedOf(b) > 0 && <div className="pts-used">−{redeemedOf(b)} used</div>}</td>
                   <td><StatusBadge status={b.payment_status} /></td>
                   <td className="row-actions">
                     <button className="link" onClick={() => setModal({ print: b })}>Print</button>

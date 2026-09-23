@@ -348,3 +348,12 @@ kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1p
 .redeem-box { border: 1px dashed #d9b86a; background: #fffaf0; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .redeem-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: #8a6414; font-size: 14px; }
 .pts-used { color: var(--red); font-size: 12px; }
+.camp-grid { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+.camp-grid > .card { min-width: 0; }
+.camp-count { background: var(--brand-soft); color: var(--brand); padding: 8px 12px; border-radius: 8px; }
+.camp-preview { background: #e7f7e9; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; font-size: 14px; }
+.camp-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px; flex-wrap: wrap; }
+.camp-bar { height: 6px; background: #f3e3e8; margin: 0 16px 8px; border-radius: 3px; overflow: hidden; }
+.camp-bar > div { height: 100%; background: var(--green); }
+tr.sent-row td { background: #f3fbf5; }
+@media (max-width: 900px) { .camp-grid { grid-template-columns: 1fr; } }
