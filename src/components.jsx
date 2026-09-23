@@ -464,6 +464,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   return (
     <form ref={formRef} onSubmit={submit} className="form bill-form">
       {!customerId && !bill && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus onPicked={() => focusSel(dateRef)} /></div>}
+      {cid && <CustomerNote customerId={cid} />}
       <div className="field"><span>Bill date *</span><DateInput value={f.bill_date} onChange={(v) => setF((x) => ({ ...x, bill_date: v }))} inputRef={dateRef} onEnter={() => focusSel(itemRef)} required /></div>
 
       <div className="item-box">
@@ -747,9 +748,9 @@ export function BarChart({ data, format = (v) => v, label }) {
   );
 }
 
-export function FollowupForm({ customerId, user, onSaved, onCancel }) {
-  const [cid, setCid] = useState(customerId || '');
-  const [f, setF] = useState({ due_date: addDays(1), notes: '' });
+export function FollowupForm({ followup, customerId, user, onSaved, onCancel }) {
+  const [cid, setCid] = useState(followup?.customer_id || customerId || '');
+  const [f, setF] = useState({ due_date: followup?.due_date || addDays(1), notes: followup?.notes || '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const { busy, error, run } = useSave();
 
@@ -757,18 +758,21 @@ export function FollowupForm({ customerId, user, onSaved, onCancel }) {
     e.preventDefault();
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
-      must(await supabase.from('followups').insert(clean({ customer_id: cid, ...f, status: 'pending', created_by: user.id })));
+      if (!f.due_date) throw new Error('Please enter the follow-up date (dd/mm/yyyy).');
+      if (followup) must(await supabase.from('followups').update(clean({ customer_id: cid, ...f })).eq('id', followup.id));
+      else must(await supabase.from('followups').insert(clean({ customer_id: cid, ...f, status: 'pending', created_by: user.id })));
       onSaved();
     });
   };
 
   return (
     <form onSubmit={submit} className="form">
-      {!customerId && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus onPicked={() => document.querySelector('.modal .date-input input')?.focus()} /></div>}
+      {!customerId && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus={!followup} onPicked={() => document.querySelector('.modal .date-input input')?.focus()} /></div>}
+      {cid && <CustomerNote customerId={cid} />}
       <div className="field"><span>Follow-up date *</span><DateInput value={f.due_date} onChange={(v) => setF((x) => ({ ...x, due_date: v }))} required /></div>
       <label>What to follow up about<textarea rows="2" placeholder="e.g. Call about new collection" value={f.notes} onChange={set('notes')} /></label>
       <ErrorBox error={error} />
-      <FormButtons busy={busy} onCancel={onCancel} label="Save follow-up" />
+      <FormButtons busy={busy} onCancel={onCancel} label={followup ? 'Update follow-up' : 'Save follow-up'} />
     </form>
   );
 }
@@ -856,3 +860,50 @@ export function ShareBill({ bill, customer, small, receiptRef }) {
 export const WaIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.3c0-.1-.2-.2-.4-.3z"/></svg>
 );
+
+
+// Shows the customer's saved notes (and tags) so staff remember them while billing
+export function CustomerNote({ customerId }) {
+  const [c, setC] = useState(null);
+  useEffect(() => {
+    let live = true;
+    supabase.from('customers').select('*').eq('id', customerId).single().then(({ data }) => { if (live) setC(data); });
+    return () => { live = false; };
+  }, [customerId]);
+  if (!c || (!c.notes && !(c.tags || []).length)) return null;
+  return (
+    <div className="cust-note">
+      <span className="cust-note-icon">📝</span>
+      <div>
+        <div className="cust-note-title">Note about {c.name} <Tags tags={c.tags} /></div>
+        {c.notes && <div className="cust-note-text">{c.notes}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Follow-up row actions: WhatsApp reminder, Edit, Mark done/Reopen, Delete
+export function FollowupActions({ f, customer, onEdit, onChanged }) {
+  const [shop, setShop] = useState(null);
+  useEffect(() => { loadSettings().then(setShop); }, []);
+  const setStatus = async (status) => {
+    const { error } = await supabase.from('followups').update({ status }).eq('id', f.id);
+    if (error) alert(error.message); else onChanged();
+  };
+  const remove = async () => {
+    if (!window.confirm('Delete this follow-up?')) return;
+    const { error } = await supabase.from('followups').delete().eq('id', f.id);
+    if (error) alert(error.message); else onChanged();
+  };
+  const wa = customer && waSend(customer.phone, waText('reminder', { customer, shop, followup: f }));
+  const done = f.status === 'done';
+  return (
+    <div className="fu-actions">
+      {!done && wa && <a className="btn small wa-btn" href={wa} target="_blank" rel="noreferrer"><WaIcon /> Remind</a>}
+      {done ? <button className="btn small" onClick={() => setStatus('pending')}>Reopen</button>
+        : <button className="btn small" onClick={() => setStatus('done')}>✓ Mark done</button>}
+      <button className="link" onClick={onEdit}>Edit</button>
+      <button className="link danger" onClick={remove}>Delete</button>
+    </div>
+  );
+}

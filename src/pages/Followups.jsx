@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, Empty, ErrorBox, FollowupForm, Loading, Modal } from '../components';
-import { customerMap, fetchAll, fmtDate, today, waLink } from '../utils';
+import { Badge, Empty, ErrorBox, FollowupActions, FollowupForm, Loading, Modal } from '../components';
+import { customerMap, fetchAll, fmtDate, today } from '../utils';
 
 export default function Followups({ user, openCustomer }) {
   const [tab, setTab] = useState('pending');
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -25,11 +26,6 @@ export default function Followups({ user, openCustomer }) {
       } catch (e) { setErr(e); }
     })();
   }, [tab, tick]);
-
-  const setStatus = async (f, status) => {
-    const { error } = await supabase.from('followups').update({ status }).eq('id', f.id);
-    if (error) alert(error.message); else setTick((t) => t + 1);
-  };
 
   const t = today();
 
@@ -51,20 +47,17 @@ export default function Followups({ user, openCustomer }) {
           {rows.length === 0 ? <Empty>Nothing here.</Empty> : (
             <ul className="list pad-list">
               {rows.map((f) => {
-                const wa = waLink(f.c?.phone);
                 return (
                   <li key={f.id}>
                     <div>
                       <button className="link strong" onClick={() => openCustomer(f.customer_id)}>{f.c?.name || 'Unknown'}</button>
-                      <div className="muted small">{f.notes || '—'}{f.c?.phone ? ` · ${f.c.phone}` : ''}</div>
+                      <div className="fu-note">{f.notes || '—'}</div>
+                      <div className="muted small">{f.c?.phone || ''}</div>
                     </div>
                     <div className="right">
                       {tab === 'pending' && (f.due_date < t ? <Badge tone="red">Overdue · {fmtDate(f.due_date)}</Badge> : f.due_date === t ? <Badge tone="amber">Today</Badge> : <Badge>{fmtDate(f.due_date)}</Badge>)}
                       {tab === 'done' && <Badge tone="green">{fmtDate(f.due_date)}</Badge>}
-                      {wa && tab === 'pending' && <a className="btn small" href={wa} target="_blank" rel="noreferrer">WhatsApp</a>}
-                      {tab === 'pending'
-                        ? <button className="btn small" onClick={() => setStatus(f, 'done')}>Mark done</button>
-                        : <button className="link" onClick={() => setStatus(f, 'pending')}>Reopen</button>}
+                      <FollowupActions f={f} customer={f.c} onEdit={() => setEditing(f)} onChanged={() => setTick((x) => x + 1)} />
                     </div>
                   </li>
                 );
@@ -74,6 +67,7 @@ export default function Followups({ user, openCustomer }) {
         </section>
       )}
       {adding && <Modal title="New follow-up" onClose={() => setAdding(false)}><FollowupForm user={user} onSaved={() => { setAdding(false); setTick((x) => x + 1); }} onCancel={() => setAdding(false)} /></Modal>}
+      {editing && <Modal title="Edit follow-up" onClose={() => setEditing(null)}><FollowupForm followup={editing} user={user} onSaved={() => { setEditing(null); setTick((x) => x + 1); }} onCancel={() => setEditing(null)} /></Modal>}
     </>
   );
 }

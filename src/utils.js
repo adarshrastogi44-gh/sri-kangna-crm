@@ -164,7 +164,8 @@ export const WA_TEMPLATES = [
   { key: 'collection', label: 'New collection arrived' },
   { key: 'points', label: 'Loyalty points balance' },
 ];
-export function waText(key, { customer, shop, due = 0, bill, points, earned } = {}) {
+const niceDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : '');
+export function waText(key, { customer, shop, due = 0, bill, points, earned, followup } = {}) {
   const name = (customer?.name || '').split(' ')[0] || 'there';
   const s = shop?.shop_name || 'Sri Kangna';
   switch (key) {
@@ -176,6 +177,8 @@ export function waText(key, { customer, shop, due = 0, bill, points, earned } = 
       return `Happy Birthday ${name}! 🎉 Wishing you a wonderful year ahead. Visit ${s} this week for a special birthday surprise!`;
     case 'anniversary':
       return `Happy Anniversary ${name}! 💐 Warm wishes from all of us at ${s}.`;
+    case 'reminder':
+      return `Hi ${name}, this is a friendly reminder from ${s}${followup?.notes ? ` about: ${followup.notes}` : ''}.${followup?.due_date && followup.due_date > today() ? ` We look forward to seeing you on ${niceDate(followup.due_date)}.` : ''} Please feel free to reply here if you have any questions. Thank you!`;
     case 'points':
       return `Hi ${name}, you have ${points ?? 0} loyalty points at ${s} (1 point = Rs. 1). Use them as a discount on your next purchase!${earned ? ` You earned ${earned} points on your purchase today.` : ''}`;
     case 'collection':

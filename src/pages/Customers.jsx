@@ -84,7 +84,7 @@ export default function Customers({ user, openCustomer }) {
             <tbody>
               {shown.map((c) => (
                 <tr key={c.id} className="click" onClick={() => openCustomer(c.id)}>
-                  <td><strong>{c.name}</strong> <Tags tags={c.tags} /></td>
+                  <td><strong>{c.name}</strong> <Tags tags={c.tags} />{c.notes && <div className="list-note" title={c.notes}>📝 {c.notes}</div>}</td>
                   <td>{c.phone || '—'}</td>
                   <td className="num">{inr(stats[c.id]?.spend || 0)}</td>
                   <td className="num">{stats[c.id]?.visits || 0}</td>

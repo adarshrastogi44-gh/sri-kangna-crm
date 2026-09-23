@@ -41,3 +41,7 @@ alter table public.shop_settings add column if not exists terms text;
 alter table public.bills add column if not exists points_redeemed integer not null default 0;
 alter table public.bills drop constraint if exists bills_points_redeemed_check;
 alter table public.bills add constraint bills_points_redeemed_check check (points_redeemed >= 0);
+
+-- 5) Allow follow-up status 'pending' / 'done'
+alter table public.followups drop constraint if exists followups_status_check;
+update public.followups set status = 'pending' where status is null or status not in ('pending','done');

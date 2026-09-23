@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupActions, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
 import { billPoints, dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
@@ -66,7 +66,7 @@ export default function CustomerDetail({ id, user, onBack }) {
         <div><span className="muted small">Birthday</span>{fmtDate(c.date_of_birth)}</div>
         <div><span className="muted small">Anniversary</span>{fmtDate(c.anniversary)}</div>
         <div><span className="muted small">Customer since</span>{fmtDate(c.created_at)}</div>
-        {c.notes && <div className="wide"><span className="muted small">Notes</span>{c.notes}</div>}
+        {c.notes && <div className="wide cust-note inline-note"><span className="cust-note-icon">📝</span><div><div className="cust-note-title">Notes</div><div className="cust-note-text">{c.notes}</div></div></div>}
       </section>
 
       <div className="stats">
@@ -128,10 +128,8 @@ export default function CustomerDetail({ id, user, onBack }) {
             <ul className="list pad-list">
               {fups.map((f) => (
                 <li key={f.id}>
-                  <div><strong>{fmtDate(f.due_date)}</strong><div className="muted small">{f.notes || '—'}</div></div>
-                  <div className="right">
-                    {f.status === 'done' ? <Badge tone="green">Done</Badge> : <button className="btn small" onClick={() => markDone(f)}>Mark done</button>}
-                  </div>
+                  <div><strong>{fmtDate(f.due_date)}</strong> {f.status === 'done' && <Badge tone="green">Done</Badge>}<div className="fu-note">{f.notes || '—'}</div></div>
+                  <div className="right"><FollowupActions f={f} customer={c} onEdit={() => setModal({ fu: f })} onChanged={done} /></div>
                 </li>
               ))}
             </ul>
@@ -139,6 +137,7 @@ export default function CustomerDetail({ id, user, onBack }) {
         </section>
       </div>
 
+      {modal?.fu && <Modal title="Edit follow-up" onClose={() => setModal(null)}><FollowupForm followup={modal.fu} customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'edit' && <Modal title="Edit customer" onClose={() => setModal(null)}><CustomerForm customer={c} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'visit' && <Modal title={`Visit · ${c.name}`} onClose={() => setModal(null)}><VisitForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
