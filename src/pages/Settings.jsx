@@ -71,7 +71,7 @@ function PinCard() {
       <h2>Delete PIN</h2>
       <p className="muted small">Bills can only be deleted after entering this 4-digit PIN. Only share it with people allowed to delete bills.</p>
       {setupErr ? <ErrorBox error={setupErr} /> : has === null ? <p className="muted small">Checking…</p> : (
-        <form className="form" onSubmit={submit}>
+        <form className="form" onSubmit={submit} autoComplete="off">
           {has && <label>Current PIN<PinInput value={f.old} onChange={(v) => setF({ ...f, old: v })} /></label>}
           <div className="grid2">
             <label>{has ? 'New PIN' : 'Choose a 4-digit PIN'}<PinInput value={f.pin} onChange={(v) => setF({ ...f, pin: v })} /></label>

@@ -41,7 +41,7 @@ begin
     insert into private.pin_failures default values;
     raise exception 'Wrong PIN.';
   end if;
-  delete from private.pin_failures;
+  delete from private.pin_failures where true;
   delete from public.bills where id = p_bill;
   if not found then raise exception 'Bill not found (it may already be deleted).'; end if;
 end $$;

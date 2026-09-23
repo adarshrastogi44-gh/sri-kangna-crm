@@ -307,3 +307,29 @@ input.mini.wide { width: 100px; }
 .btn.danger-btn { background: var(--red); border-color: var(--red); color: #fff; }
 .btn.danger-btn:hover { background: #8f1d17; border-color: #8f1d17; }
 .pin-input.code { width: 190px !important; letter-spacing: 6px; }
+.pin-input { -webkit-text-security: disc; text-security: disc; }
+.pin-input::placeholder { -webkit-text-security: none; }
+.pin-input.code { -webkit-text-security: none; text-security: none; }
+
+/* ---------- Fast bill entry ---------- */
+.typeahead { position: relative; }
+.ta-list, .ip-list { border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-top: 4px; max-height: 240px; overflow-y: auto; }
+.ta-opt, .io { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; font: inherit; font-size: 14px; cursor: pointer; color: var(--text); border-bottom: 1px solid #f7eaee; }
+.ta-opt:last-child, .io:last-child { border-bottom: 0; }
+.ta-opt.active, .io.active, .ta-opt:hover, .io:hover { background: var(--hover); color: #fff; }
+.ta-opt.active .muted, .ta-opt:hover .muted, .io.active .io-cat, .io:hover .io-cat { color: #fff; }
+.ta-empty { padding: 10px; color: var(--muted); font-size: 13px; }
+.picked { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fffafb; font-weight: 400; }
+.field > span { font-size: 13px; font-weight: 600; color: #4a4245; }
+.date-input { position: relative; display: flex; align-items: center; max-width: 220px; }
+.date-input input[type=text] { padding-right: 38px; letter-spacing: .5px; }
+.date-btn { position: absolute; right: 4px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 6px; border-radius: 6px; display: grid; place-items: center; }
+.date-btn:hover { background: var(--hover); color: #fff; }
+.date-hidden { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+.ip-list { max-height: 260px; }
+.ip-head { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid #f7eaee; background: #fff5f8; padding: 9px 10px; font: inherit; font-weight: 700; color: var(--brand); cursor: pointer; }
+.ip-head:hover { background: var(--hover); color: #fff; }
+.ip-head:hover .muted { color: #fff; }
+.chev { width: 12px; display: inline-block; }
+.ip-items .io { padding-left: 30px; }
+.io-cat { float: right; font-size: 12px; color: var(--muted); }
