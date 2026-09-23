@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, customerPoints, pointsFor, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -314,6 +314,9 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const rateRef = useRef(null);
   const focusSel = (r) => setTimeout(() => { r.current?.focus(); r.current?.select?.(); }, 0);
   const formRef = useRef(null);
+  // Customer already chosen (bill opened from a customer's page) → start in the date box
+  useEffect(() => { if (customerId || bill) focusSel(dateRef); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // F2 = save the bill
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'F2') { e.preventDefault(); formRef.current?.requestSubmit(); } };
@@ -477,7 +480,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">Total <b>{inr(amount)}</b> · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">Total <b>{inr(amount)}</b>{amount > 0 && <> · <span className="pts">+{pointsFor(amount)} pts</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
@@ -491,7 +494,9 @@ function BillSaved({ bill, onDone }) {
   const [printing, setPrinting] = useState(false);
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
+  const [balance, setBalance] = useState(null);
   useEffect(() => {
+    customerPoints(bill.customer_id).then(setBalance).catch(() => {});
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
@@ -501,6 +506,7 @@ function BillSaved({ bill, onDone }) {
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
+      <p className="points-earned">★ +{pointsFor(bill.amount)} loyalty points earned{balance != null && <> · Total <b>{balance}</b> points</>}</p>
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
@@ -518,7 +524,9 @@ const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDate
 export function PrintBill({ bill, onClose }) {
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
+  const [balance, setBalance] = useState(null);
   useEffect(() => {
+    customerPoints(bill.customer_id).then(setBalance).catch(() => {});
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
@@ -578,6 +586,7 @@ export function PrintBill({ bill, onClose }) {
           <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
           {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
         </div>
+        <div className="r-points">★ Loyalty points earned on this estimate: <b>{pointsFor(bill.amount)}</b>{balance != null && <> · Total points: <b>{balance}</b></>}</div>
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
         {termsLines(shop?.terms).length > 0 && (
           <div className="r-terms">

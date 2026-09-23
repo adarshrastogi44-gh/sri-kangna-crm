@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, BillForm, CustomerForm, DeleteBillModal, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
-import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, waLink } from '../utils';
+import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsFor, pointsTotal, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
   const [d, setD] = useState(null);
@@ -72,6 +72,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       <div className="stats">
         <div className="stat"><div className="stat-label">Total purchases</div><div className="stat-value">{inr(total)}</div><div className="stat-sub">{bills.length} bills</div></div>
         <div className="stat"><div className="stat-label">Visits</div><div className="stat-value">{visits.length}</div><div className="stat-sub">Last: {fmtDate(visits[0]?.visit_date)}</div></div>
+        <div className="stat loyalty"><div className="stat-label">★ Loyalty points</div><div className="stat-value">{pointsTotal(bills)}</div><div className="stat-sub">5% of every purchase</div></div>
         <div className="stat"><div className="stat-label">Active months</div><div className="stat-value">{months.size}</div></div>
         <div className={`stat ${due > 0 ? 'warn' : ''}`}><div className="stat-label">Pending due</div><div className="stat-value">{inr(due)}</div></div>
       </div>
@@ -80,7 +81,7 @@ export default function CustomerDetail({ id, user, onBack }) {
         <h2 className="pad">Bills</h2>
         {bills.length === 0 ? <Empty>No bills yet.</Empty> : (
           <table>
-            <thead><tr><th>Date</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num">Paid</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num">Paid</th><th className="num">Points</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {bills.map((b) => (
                 <tr key={b.id}>
@@ -88,6 +89,7 @@ export default function CustomerDetail({ id, user, onBack }) {
                   <td className="hide-sm">{itemsSummary(b.items) || '—'}</td>
                   <td className="num">{inr(b.amount)}</td>
                   <td className="num">{inr(b.paid_amount)}</td>
+                  <td className="num"><span className="pts">+{pointsFor(b.amount)}</span></td>
                   <td><StatusBadge status={b.payment_status} /></td>
                   <td className="row-actions">
                     <button className="link" onClick={() => setModal({ print: b })}>Print</button>

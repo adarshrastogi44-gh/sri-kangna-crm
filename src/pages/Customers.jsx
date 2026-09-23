@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { CustomerForm, Empty, ErrorBox, Loading, Modal, Tags } from '../components';
-import { fetchAll, fmtDate, inr, invalidateCustomers, loadCustomers } from '../utils';
+import { fetchAll, fmtDate, inr, invalidateCustomers, loadCustomers, pointsFor } from '../utils';
 import ImportCustomers from './ImportCustomers';
 import ImportOldCrm from './ImportOldCrm';
 
@@ -24,8 +24,8 @@ export default function Customers({ user, openCustomer }) {
       fetchAll(() => supabase.from('visits').select('customer_id,visit_date')),
     ]).then(([bills, visits]) => {
       const s = {};
-      const get = (id) => (s[id] ||= { spend: 0, visits: 0, last: '' });
-      bills.forEach((b) => { get(b.customer_id).spend += Number(b.amount || 0); });
+      const get = (id) => (s[id] ||= { spend: 0, visits: 0, last: '', points: 0 });
+      bills.forEach((b) => { const x = get(b.customer_id); x.spend += Number(b.amount || 0); x.points += pointsFor(b.amount); });
       visits.forEach((v) => { const x = get(v.customer_id); x.visits += 1; if (v.visit_date > x.last) x.last = v.visit_date; });
       setStats(s);
     }).catch(() => {});
@@ -43,6 +43,7 @@ export default function Customers({ user, openCustomer }) {
       const A = stats[a.id] || {}; const B = stats[b.id] || {};
       if (sort === 'spend') return (B.spend || 0) - (A.spend || 0);
       if (sort === 'visits') return (B.visits || 0) - (A.visits || 0) || (B.spend || 0) - (A.spend || 0);
+      if (sort === 'points') return (B.points || 0) - (A.points || 0);
       if (sort === 'recent') return (B.last || '').localeCompare(A.last || '');
       return (a.name || '').localeCompare(b.name || '');
     });
@@ -66,6 +67,7 @@ export default function Customers({ user, openCustomer }) {
             <option value="spend">Highest purchases</option>
             <option value="visits">Most visits</option>
             <option value="recent">Last visited</option>
+            <option value="points">Most loyalty points</option>
           </select>
         </label>
       </div>
@@ -78,7 +80,7 @@ export default function Customers({ user, openCustomer }) {
       <section className="card flush">
         {shown.length === 0 ? <Empty>{list.length ? 'No matching customers.' : 'No customers yet. Add your first one, or import them from Excel.'}</Empty> : (
           <table>
-            <thead><tr><th>Name</th><th>Phone</th><th className="num">Purchases</th><th className="num">Visits</th><th className="hide-sm">Last visit</th><th className="hide-sm">Address</th></tr></thead>
+            <thead><tr><th>Name</th><th>Phone</th><th className="num">Purchases</th><th className="num">Visits</th><th className="num">Points</th><th className="hide-sm">Last visit</th><th className="hide-sm">Address</th></tr></thead>
             <tbody>
               {shown.map((c) => (
                 <tr key={c.id} className="click" onClick={() => openCustomer(c.id)}>
@@ -86,6 +88,7 @@ export default function Customers({ user, openCustomer }) {
                   <td>{c.phone || '—'}</td>
                   <td className="num">{inr(stats[c.id]?.spend || 0)}</td>
                   <td className="num">{stats[c.id]?.visits || 0}</td>
+                  <td className="num"><span className="pts">{stats[c.id]?.points || 0}</span></td>
                   <td className="hide-sm">{fmtDate(stats[c.id]?.last)}</td>
                   <td className="hide-sm">{c.address || '—'}</td>
                 </tr>

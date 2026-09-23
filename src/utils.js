@@ -234,3 +234,12 @@ export async function resetDeletePin(newPin) {
   const { error } = await supabase.rpc('reset_delete_pin', { new_pin: newPin });
   if (error) throw recErr(error);
 }
+
+// ---------- Loyalty points: 5% of every bill amount (rounded down) ----------
+export const LOYALTY_RATE = 0.05;
+export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
+export const pointsTotal = (bills) => bills.reduce((s, b) => s + pointsFor(b.amount), 0);
+export async function customerPoints(customerId) {
+  const bills = await fetchAll(() => supabase.from('bills').select('amount').eq('customer_id', customerId));
+  return pointsTotal(bills);
+}

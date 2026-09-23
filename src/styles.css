@@ -340,3 +340,8 @@ kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1p
 .r-terms-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8a7a80; margin-bottom: 4px; font-weight: 600; }
 .r-terms ol { margin: 0; padding-left: 18px; }
 .r-terms li { margin: 2px 0; }
+.pts { color: #9a6a12; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat.loyalty { border-color: #ecd49a; background: linear-gradient(135deg, #fffaf0, #fff3dc); }
+.stat.loyalty .stat-value { color: #9a6a12; }
+.points-earned { color: #9a6a12; font-weight: 500; margin: 0 0 14px; }
+.r-points { margin-top: 16px; padding: 8px 12px; border: 1px dashed #d9b86a; border-radius: 6px; color: #8a6414; font-size: 13px; background: #fffaf0; }
