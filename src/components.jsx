@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -579,6 +579,12 @@ export function PrintBill({ bill, onClose }) {
           {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
         </div>
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
+        {termsLines(shop?.terms).length > 0 && (
+          <div className="r-terms">
+            <div className="r-terms-title">Terms &amp; Conditions</div>
+            <ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol>
+          </div>
+        )}
         {shop?.bill_footer && <div className="r-foot">{shop.bill_footer}</div>}
       </div>
     </div>,

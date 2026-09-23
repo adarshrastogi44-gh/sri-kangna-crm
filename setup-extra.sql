@@ -35,3 +35,5 @@ create policy "Signed-in staff manage settings" on public.shop_settings
 
 -- 4) Allow any visit type (Purchase, Walk-in, Enquiry, ...)
 alter table public.visits drop constraint if exists visits_visit_type_check;
+-- Sri Kangna CRM: Terms & Conditions on estimates. Run once in Supabase → SQL Editor.
+alter table public.shop_settings add column if not exists terms text;

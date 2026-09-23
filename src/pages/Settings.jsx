@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ErrorBox, Loading, Modal, PinInput } from '../components';
-import { hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
+import { DEFAULT_TERMS, hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
 import { supabase } from '../supabase';
 
 export default function Settings() {
@@ -9,7 +9,7 @@ export default function Settings() {
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { loadSettings(true).then(setF); }, []);
+  useEffect(() => { loadSettings(true).then((x) => setF({ ...x, terms: x.terms ?? (x._hasTerms ? DEFAULT_TERMS : '') })); }, []);
   if (!f) return <Loading />;
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setMsg(''); };
 
@@ -18,6 +18,7 @@ export default function Settings() {
     setBusy(true); setError(null);
     try {
       const row = { id: 1, shop_name: f.shop_name, address: f.address || null, phone: f.phone || null, bill_footer: f.bill_footer || null };
+      if (f._hasTerms) row.terms = f.terms?.trim() || null;
       must(await supabase.from('shop_settings').upsert(row));
       await loadSettings(true);
       setMsg('Saved');
@@ -35,6 +36,14 @@ export default function Settings() {
           <label>Address<textarea rows="2" value={f.address || ''} onChange={set('address')} /></label>
           <label>Phone<input value={f.phone || ''} onChange={set('phone')} /></label>
           <label>Message at the bottom of estimates<input value={f.bill_footer || ''} onChange={set('bill_footer')} /></label>
+          {f._hasTerms ? (
+            <label>Terms &amp; Conditions (one per line, printed on every estimate)
+              <textarea rows="5" value={f.terms || ''} onChange={set('terms')} placeholder="e.g. Goods once sold will not be taken back." />
+              <span className="muted small" style={{ fontWeight: 400 }}>Leave empty to print no terms. Click <b>Save settings</b> after editing.</span>
+            </label>
+          ) : (
+            <div className="muted small">To add Terms &amp; Conditions, run <b>terms-setup.sql</b> in Supabase → SQL Editor, then refresh this page.</div>
+          )}
           <ErrorBox error={error} />
           <div className="form-actions">
             {msg && <span className="saved-msg">✓ {msg}</span>}

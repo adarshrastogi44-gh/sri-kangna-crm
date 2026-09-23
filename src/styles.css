@@ -336,3 +336,7 @@ input.mini.wide { width: 100px; }
 .save-bar { position: sticky; bottom: -20px; margin: 4px -20px -20px; padding: 12px 20px; background: #fff; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; box-shadow: 0 -6px 16px rgba(0,0,0,.05); z-index: 2; border-radius: 0 0 14px 14px; }
 .save-bar .form-actions { margin: 0; }
 kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1px solid #d9c9cf; border-bottom-width: 2px; border-radius: 4px; background: #fff; color: var(--text); }
+.r-terms { margin-top: 26px; padding-top: 12px; border-top: 1px solid #f1e3e5; font-size: 11.5px; color: #6f5c63; }
+.r-terms-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8a7a80; margin-bottom: 4px; font-weight: 600; }
+.r-terms ol { margin: 0; padding-left: 18px; }
+.r-terms li { margin: 2px 0; }

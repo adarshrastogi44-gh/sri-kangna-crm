@@ -128,9 +128,17 @@ let settingsCache = null;
 export async function loadSettings(force = false) {
   if (settingsCache && !force) return settingsCache;
   const { data, error } = await supabase.from('shop_settings').select('*').eq('id', 1).maybeSingle();
-  settingsCache = { ...DEFAULT_SETTINGS, ...(error ? {} : data || {}), _missing: Boolean(error) };
+  settingsCache = { ...DEFAULT_SETTINGS, ...(error ? {} : data || {}), _missing: Boolean(error), _hasTerms: Boolean(data && 'terms' in data) };
   return settingsCache;
 }
+
+export const DEFAULT_TERMS = [
+  'Goods once sold will not be taken back.',
+  'Exchange only within 7 days with this estimate and original tags.',
+  'No exchange or return on sale / discounted items.',
+  'Subject to local jurisdiction.',
+].join('\n');
+export const termsLines = (t) => (t || '').split('\n').map((x) => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
 
 export async function loadProducts() {
   const { data, error } = await supabase.from('products').select('*').order('name');
