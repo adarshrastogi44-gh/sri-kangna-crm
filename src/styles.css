@@ -345,3 +345,6 @@ kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1p
 .stat.loyalty .stat-value { color: #9a6a12; }
 .points-earned { color: #9a6a12; font-weight: 500; margin: 0 0 14px; }
 .r-points { margin-top: 16px; padding: 8px 12px; border: 1px dashed #d9b86a; border-radius: 6px; color: #8a6414; font-size: 13px; background: #fffaf0; }
+.redeem-box { border: 1px dashed #d9b86a; background: #fffaf0; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.redeem-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: #8a6414; font-size: 14px; }
+.pts-used { color: var(--red); font-size: 12px; }

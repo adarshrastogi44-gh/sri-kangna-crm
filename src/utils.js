@@ -238,8 +238,22 @@ export async function resetDeletePin(newPin) {
 // ---------- Loyalty points: 5% of every bill amount (rounded down) ----------
 export const LOYALTY_RATE = 0.05;
 export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
-export const pointsTotal = (bills) => bills.reduce((s, b) => s + pointsFor(b.amount), 0);
-export async function customerPoints(customerId) {
-  const bills = await fetchAll(() => supabase.from('bills').select('amount').eq('customer_id', customerId));
-  return pointsTotal(bills);
+export const redeemedOf = (b) => Number(b.points_redeemed || 0);
+export const pointsEarned = (bills) => bills.reduce((s, b) => s + pointsFor(b.amount), 0);
+export const pointsUsed = (bills) => bills.reduce((s, b) => s + redeemedOf(b), 0);
+// Balance = points earned on all bills − points redeemed on bills (1 point = Rs. 1)
+export const pointsTotal = (bills) => pointsEarned(bills) - pointsUsed(bills);
+export async function customerBills(customerId) {
+  return fetchAll(() => supabase.from('bills').select('*').eq('customer_id', customerId));
+}
+export async function customerPoints(customerId, excludeBillId) {
+  const bills = await customerBills(customerId);
+  return pointsTotal(bills.filter((b) => b.id !== excludeBillId));
+}
+let redeemCol = null;
+export async function hasRedeemColumn() {
+  if (redeemCol !== null) return redeemCol;
+  const { error } = await supabase.from('bills').select('points_redeemed').limit(1);
+  redeemCol = !error;
+  return redeemCol;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, customerPoints, pointsFor, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -306,9 +306,17 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
+  const [redeem, setRedeem] = useState(bill ? String(redeemedOf(bill) || '') : '');
+  const [available, setAvailable] = useState(null);
+  const [redeemOk, setRedeemOk] = useState(true);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const { busy, error, run } = useSave();
   const dateRef = useRef(null);
+  useEffect(() => { hasRedeemColumn().then(setRedeemOk); }, []);
+  useEffect(() => {
+    setAvailable(null);
+    if (cid) customerPoints(cid, bill?.id).then(setAvailable).catch(() => setAvailable(0));
+  }, [cid, bill?.id]);
   const itemRef = useRef(null);
   const qtyRef = useRef(null);
   const rateRef = useRef(null);
@@ -329,7 +337,10 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const pickedProduct = (products || []).find((x) => x.id === pick.id);
   const subtotal = lines.reduce((s, l) => s + l.qty * l.rate, 0);
   const disc = Math.max(0, Number(discount || 0));
-  const amount = lines.length ? Math.max(0, subtotal - disc) : Number(f.amount || 0);
+  const gross = lines.length ? Math.max(0, subtotal - disc) : Number(f.amount || 0);
+  const maxRedeem = Math.max(0, Math.min(available || 0, Math.floor(gross)));
+  const used = Math.max(0, Math.min(Math.floor(Number(redeem || 0)), maxRedeem));
+  const amount = Math.max(0, gross - used);
   const paid = fullPaid ? amount : Number(f.paid_amount || 0);
   const status = statusFor(amount, paid);
 
@@ -378,6 +389,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         payment_status: status,
         notes: f.notes,
       });
+      if (redeemOk) row.points_redeemed = used;
+      if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
       if (bill) {
         result = must(await supabase.from('bills').update(row).eq('id', bill.id).select().single());
@@ -454,6 +467,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
                 <td colSpan="3" className="num muted">Discount (₹)</td>
                 <td className="num"><input className="mini wide" type="number" min="0" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} /></td><td></td>
               </tr>
+              {used > 0 && <tr><td colSpan="3" className="num muted">Loyalty points redeemed</td><td className="num">− {inr(used)}</td><td></td></tr>}
               <tr className="total"><td colSpan="3" className="num">Total</td><td className="num">{inr(amount)}</td><td></td></tr>
             </tbody>
           </table>
@@ -467,6 +481,25 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         </div>
       )}
 
+      {cid && (
+        <div className="redeem-box">
+          <div className="redeem-head">
+            <b>★ Redeem loyalty points</b>
+            <span className="muted small">{available == null ? 'Checking points…' : <>Available: <b className="pts">{available}</b> points (= {inr(available)})</>}</span>
+          </div>
+          {!redeemOk ? (
+            <div className="muted small">To redeem points, run <b>loyalty-setup.sql</b> in Supabase → SQL Editor, then refresh.</div>
+          ) : (
+            <div className="item-add">
+              <label className="inline">Use points<input className="price-in" type="number" min="0" max={maxRedeem} step="1" placeholder="0" value={redeem}
+                onChange={(e) => setRedeem(e.target.value)} disabled={!maxRedeem && !redeem} /></label>
+              <button type="button" className="btn small" disabled={!maxRedeem} onClick={() => setRedeem(String(maxRedeem))}>Use all ({maxRedeem})</button>
+              {used > 0 && <button type="button" className="link" onClick={() => setRedeem('')}>Clear</button>}
+              {used > 0 && <span className="small">− {inr(used)} off</span>}
+            </div>
+          )}
+        </div>
+      )}
       <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>
       {!fullPaid && (
         <label>Amount paid (₹)<input type="number" min="0" step="0.01" value={f.paid_amount} onChange={set('paid_amount')} /></label>
@@ -480,7 +513,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">Total <b>{inr(amount)}</b>{amount > 0 && <> · <span className="pts">+{pointsFor(amount)} pts</span></>} · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">+{pointsFor(amount)} pts</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
@@ -506,7 +539,7 @@ function BillSaved({ bill, onDone }) {
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
-      <p className="points-earned">★ +{pointsFor(bill.amount)} loyalty points earned{balance != null && <> · Total <b>{balance}</b> points</>}</p>
+      <p className="points-earned">★ +{pointsFor(bill.amount)} points earned{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
@@ -582,11 +615,13 @@ export function PrintBill({ bill, onClose }) {
           </tbody>
         </table>
         <div className="r-totals">
-          {disc > 0 && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc)}</div><div>Discount</div><div>− {rs(disc)}</div></>}
+          {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
+          {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
+          {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
           <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
           {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
         </div>
-        <div className="r-points">★ Loyalty points earned on this estimate: <b>{pointsFor(bill.amount)}</b>{balance != null && <> · Total points: <b>{balance}</b></>}</div>
+        <div className="r-points">★ Loyalty points earned: <b>{pointsFor(bill.amount)}</b>{redeemedOf(bill) > 0 && <> · Used: <b>{redeemedOf(bill)}</b></>}{balance != null && <> · Balance: <b>{balance}</b> points (1 point = Rs. 1)</>}</div>
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
         {termsLines(shop?.terms).length > 0 && (
           <div className="r-terms">

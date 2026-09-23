@@ -20,12 +20,12 @@ export default function Customers({ user, openCustomer }) {
     invalidateCustomers();
     loadCustomers().then(setList).catch(setErr);
     Promise.all([
-      fetchAll(() => supabase.from('bills').select('customer_id,amount')),
+      fetchAll(() => supabase.from('bills').select('*')),
       fetchAll(() => supabase.from('visits').select('customer_id,visit_date')),
     ]).then(([bills, visits]) => {
       const s = {};
       const get = (id) => (s[id] ||= { spend: 0, visits: 0, last: '', points: 0 });
-      bills.forEach((b) => { const x = get(b.customer_id); x.spend += Number(b.amount || 0); x.points += pointsFor(b.amount); });
+      bills.forEach((b) => { const x = get(b.customer_id); x.spend += Number(b.amount || 0); x.points += pointsFor(b.amount) - Number(b.points_redeemed || 0); });
       visits.forEach((v) => { const x = get(v.customer_id); x.visits += 1; if (v.visit_date > x.last) x.last = v.visit_date; });
       setStats(s);
     }).catch(() => {});
