@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { Badge, BillForm, CustomerForm, DeleteBillModal, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
 import { dueOf, fetchAll, fmtDate, inr, itemsSummary, must, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
@@ -92,7 +92,7 @@ export default function CustomerDetail({ id, user, onBack }) {
                   <td className="row-actions">
                     <button className="link" onClick={() => setModal({ print: b })}>Print</button>
                     <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
-                    <button className="link danger" onClick={() => remove('bills', b.id, 'bill')}>Delete</button>
+                    <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -140,6 +140,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       {modal === 'visit' && <Modal title={`Visit · ${c.name}`} onClose={() => setModal(null)}><VisitForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'followup' && <Modal title={`Follow-up · ${c.name}`} onClose={() => setModal(null)}><FollowupForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.del && <DeleteBillModal bill={modal.del} customerName={c.name} onDeleted={done} onClose={() => setModal(null)} />}
       {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}
       {modal?.bill && <Modal title="Edit bill" onClose={() => setModal(null)}><BillForm bill={modal.bill} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
     </>

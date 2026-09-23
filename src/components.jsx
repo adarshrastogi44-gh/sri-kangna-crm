@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
-  return (
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" role="dialog" aria-label={title}>
         <div className="modal-head">
@@ -13,7 +13,8 @@ export function Modal({ title, onClose, children }) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -538,4 +539,37 @@ export function FollowupForm({ customerId, user, onSaved, onCancel }) {
 
 export function MonthPicker({ value, onChange }) {
   return <input type="month" className="month" value={value} onChange={(e) => e.target.value && onChange(e.target.value)} />;
+}
+
+export function PinInput({ value, onChange, autoFocus }) {
+  return (
+    <input className="pin-input" type="password" inputMode="numeric" autoComplete="off" maxLength={4} placeholder="••••"
+      value={value} autoFocus={autoFocus} onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+  );
+}
+
+export function DeleteBillModal({ bill, customerName, onDeleted, onClose }) {
+  const [pin, setPin] = useState('');
+  const { busy, error, run } = useSave();
+  const submit = (e) => {
+    e.preventDefault();
+    run(async () => { await deleteBillWithPin(bill.id, pin); onDeleted(); });
+  };
+  return (
+    <Modal title="Delete bill" onClose={onClose}>
+      <form className="form" onSubmit={submit}>
+        <div className="delete-summary">
+          <div><b>{customerName || 'Customer'}</b> · {fmtDate(bill.bill_date)}</div>
+          <div className="muted small">{billNo(bill)} · {inr(bill.amount)}</div>
+        </div>
+        <p className="muted small">This cannot be undone. Enter the 4-digit delete PIN to confirm. Forgot it? The owner can reset it in <b>Settings → Delete PIN</b>.</p>
+        <label>Delete PIN<PinInput value={pin} onChange={setPin} autoFocus /></label>
+        <ErrorBox error={error} />
+        <div className="form-actions">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn danger-btn" disabled={busy || pin.length !== 4}>{busy ? 'Deleting…' : 'Delete bill'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
 }

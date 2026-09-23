@@ -188,3 +188,41 @@ export async function insertVisits(rows) {
   }
   if (error) throw error;
 }
+
+// ---------- PIN-protected bill delete (see delete-pin-setup.sql) ----------
+const pinSetupMsg = 'The delete PIN is not set up yet. Run delete-pin-setup.sql in Supabase → SQL Editor.';
+const pinErr = (error) => new Error(/function .*does not exist|Could not find the function/i.test(error.message) ? pinSetupMsg : error.message);
+export async function hasDeletePin() {
+  const { data, error } = await supabase.rpc('has_delete_pin');
+  if (error) throw pinErr(error);
+  return Boolean(data);
+}
+export async function setDeletePin(oldPin, newPin) {
+  const { error } = await supabase.rpc('set_delete_pin', { old_pin: oldPin || null, new_pin: newPin });
+  if (error) throw pinErr(error);
+}
+export async function deleteBillWithPin(billId, pin) {
+  const { error } = await supabase.rpc('delete_bill_with_pin', { p_bill: billId, p_pin: pin });
+  if (error) throw pinErr(error);
+}
+
+// ---------- PIN recovery by email code (see pin-recovery-setup.sql) ----------
+const recoverySetupMsg = 'PIN recovery is not set up yet. Run pin-recovery-setup.sql in Supabase → SQL Editor.';
+const recErr = (error) => new Error(/function .*does not exist|Could not find the function/i.test(error.message) ? recoverySetupMsg : error.message);
+export async function pinOwnerInfo() {
+  const { data, error } = await supabase.rpc('pin_owner_info');
+  if (error) throw recErr(error);
+  return data || {};
+}
+export async function sendPinResetCode(email) {
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  if (error) throw error;
+}
+export async function verifyPinResetCode(email, token) {
+  const { error } = await supabase.auth.verifyOtp({ email, token: token.trim(), type: 'email' });
+  if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Send a new one.' : error.message);
+}
+export async function resetDeletePin(newPin) {
+  const { error } = await supabase.rpc('reset_delete_pin', { new_pin: newPin });
+  if (error) throw recErr(error);
+}
