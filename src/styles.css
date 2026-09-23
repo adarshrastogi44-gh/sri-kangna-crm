@@ -363,3 +363,8 @@ th.chk, td.chk { width: 36px; padding-right: 0; }
 td.chk input, th.chk input { width: 18px; height: 18px; accent-color: var(--brand); cursor: pointer; }
 tr.skip-row td { opacity: .5; }
 tr.skip-row td.chk { opacity: 1; }
+.btn.wa-btn { background: #25d366; border-color: #25d366; color: #fff; font-weight: 600; }
+.btn.wa-btn:hover { background: #1ebe5a; border-color: #1ebe5a; color: #fff; }
+.row-wa { display: inline-block; margin: 0 8px; vertical-align: middle; }
+.row-wa .btn.small { padding: 3px 8px; font-size: 12px; }
+.print-toolbar { flex-wrap: wrap; }

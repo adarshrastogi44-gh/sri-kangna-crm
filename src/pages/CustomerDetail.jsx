@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, DeleteBillModal, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
 import { billPoints, dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
@@ -93,6 +93,7 @@ export default function CustomerDetail({ id, user, onBack }) {
                   <td><StatusBadge status={b.payment_status} /></td>
                   <td className="row-actions">
                     <button className="link" onClick={() => setModal({ print: b })}>Print</button>
+                        <span className="row-wa"><ShareBill bill={b} customer={c} small /></span>
                     <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
                     <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
                   </td>

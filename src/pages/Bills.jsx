@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { BillForm, DeleteBillModal, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, StatusBadge } from '../components';
+import { BillForm, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, StatusBadge } from '../components';
 import { billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthRange } from '../utils';
 
 export default function Bills({ user, openCustomer }) {
@@ -62,6 +62,7 @@ export default function Bills({ user, openCustomer }) {
                       <td><StatusBadge status={b.payment_status} /></td>
                       <td className="row-actions">
                         <button className="link" onClick={() => setModal({ print: b })}>Print</button>
+                        <span className="row-wa"><ShareBill bill={b} customer={b.c} small /></span>
                         <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
                         <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
                       </td>

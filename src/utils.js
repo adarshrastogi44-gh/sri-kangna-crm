@@ -263,3 +263,28 @@ export async function hasRedeemColumn() {
   redeemCol = !error;
   return redeemCol;
 }
+
+// ---------- Bill as a WhatsApp message ----------
+export function billText(bill, customer, shop) {
+  const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const { lines, ok } = parseItems(bill.items);
+  const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+  const disc = ok ? -(lines.find((l) => l.name === 'Discount')?.rate || 0) : 0;
+  const red = Number(bill.points_redeemed || 0);
+  const out = [];
+  out.push(`*${shop?.shop_name || 'Sri Kangna'}*`);
+  out.push(`Estimate ${billNo(bill)} · ${fmtDate(bill.bill_date)}`);
+  out.push('');
+  out.push(`Dear ${customer?.name || 'Customer'},`);
+  out.push('Here are your purchase details:');
+  out.push('');
+  if (items.length) items.forEach((l, i) => out.push(`${i + 1}. ${l.name} — ${l.qty} × ${rs(l.rate)} = ${rs(l.qty * l.rate)}`));
+  else out.push(`• ${bill.items || 'Purchase'} — ${rs(bill.amount)}`);
+  if (disc > 0 || red > 0) out.push('', `Subtotal: ${rs(Number(bill.amount) + disc + red)}`);
+  if (disc > 0) out.push(`Discount: − ${rs(disc)}`);
+  if (red > 0) out.push(`Loyalty points redeemed: − ${rs(red)}`);
+  out.push(`*Total: ${rs(bill.amount)}*`);
+  if (dueOf(bill) > 0) out.push(`Paid: ${rs(bill.paid_amount)}`, `Balance due: ${rs(dueOf(bill))}`);
+  if (shop?.bill_footer) out.push('', shop.bill_footer);
+  return out.join('\n');
+}

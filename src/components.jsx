@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, billPoints, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -533,7 +533,7 @@ function BillSaved({ bill, onDone }) {
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
-  const wa = c && waSend(c.phone, waText('thanks', { customer: c, shop, bill }));
+  const wa = c && shop && waSend(c.phone, billText(bill, c, shop));
   const waPts = c && balance != null && waSend(c.phone, waText('points', { customer: c, shop, points: balance, earned: billPoints(bill) }));
   return (
     <div className="saved">
@@ -544,7 +544,7 @@ function BillSaved({ bill, onDone }) {
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
-        {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
+        {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send bill on WhatsApp</a>}
         {waPts && <a className="btn" href={waPts} target="_blank" rel="noreferrer">Send points on WhatsApp</a>}
         <button className="btn primary" onClick={onDone}>Done</button>
       </div>
@@ -557,6 +557,7 @@ const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFract
 const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 
 export function PrintBill({ bill, onClose }) {
+  const receiptRef = useRef(null);
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
   const [balance, setBalance] = useState(null);
@@ -577,10 +578,11 @@ export function PrintBill({ bill, onClose }) {
   return createPortal(
     <div className="print-root">
       <div className="print-toolbar no-print">
+        <ShareBill bill={bill} customer={c} receiptRef={receiptRef} />
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
-      <div className="receipt">
+      <div className="receipt" ref={receiptRef}>
         <div className="r-top">
           <div className="r-brand">
             <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
@@ -763,3 +765,47 @@ export function DeleteBillModal({ bill, customerName, onDeleted, onClose }) {
     </Modal>
   );
 }
+
+
+// Send a bill to the customer's WhatsApp (as a message), or share it as an image
+export function ShareBill({ bill, customer, small, receiptRef }) {
+  const [c, setC] = useState(customer || null);
+  const [shop, setShop] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    loadSettings().then(setShop);
+    if (!customer) supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+  }, [bill.customer_id, customer]);
+  const link = c && shop && waSend(c.phone, billText(bill, c, shop));
+  const shareImage = async () => {
+    const el = receiptRef?.current;
+    if (!el) return;
+    setBusy(true);
+    try {
+      const { default: html2canvas } = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/+esm');
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      const file = new File([blob], `${billNo(bill)}.png`, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Estimate ${billNo(bill)}` });
+      } else {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+        alert('The bill image was downloaded. Attach it in WhatsApp (the chat opens next).');
+        if (link) window.open(link, '_blank');
+      }
+    } catch (e) { if (e?.name !== 'AbortError') alert('Could not create the image: ' + e.message); }
+    finally { setBusy(false); }
+  };
+  if (c && !waLink(c.phone)) return <span className="muted small">No mobile number</span>;
+  return (
+    <>
+      <a className={`btn wa-btn ${small ? 'small' : ''}`} href={link || '#'} target="_blank" rel="noreferrer" onClick={(e) => { if (!link) e.preventDefault(); }}>
+        <WaIcon /> Share on WhatsApp
+      </a>
+      {receiptRef && <button type="button" className={`btn ${small ? 'small' : ''}`} disabled={busy} onClick={shareImage}>{busy ? 'Preparing…' : 'Share as image'}</button>}
+    </>
+  );
+}
+export const WaIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.3c0-.1-.2-.2-.4-.3z"/></svg>
+);
