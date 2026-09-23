@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { addDays, billNo, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return (
@@ -149,7 +149,7 @@ export function VisitForm({ customerId, user, onSaved, onCancel }) {
     e.preventDefault();
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
-      must(await supabase.from('visits').insert(clean({ customer_id: cid, ...f, created_by: user.id })));
+      await insertVisits(clean({ customer_id: cid, ...f, created_by: user.id }));
       onSaved();
     });
   };
@@ -248,13 +248,15 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         return;
       }
       result = must(await supabase.from('bills').insert({ ...row, created_by: user.id }).select().single());
+      let visitNote = '';
       if (logVisit) {
-        const existing = must(await supabase.from('visits').select('id').eq('customer_id', cid).eq('visit_date', f.bill_date).limit(1));
-        if (!existing.length) {
-          must(await supabase.from('visits').insert({ customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id }));
-        }
+        // The bill is already saved; a problem with the visit must not block it (avoids duplicate bills)
+        try {
+          const existing = must(await supabase.from('visits').select('id').eq('customer_id', cid).eq('visit_date', f.bill_date).limit(1));
+          if (!existing.length) await insertVisits({ customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id });
+        } catch (x) { visitNote = `Bill saved, but the visit could not be recorded: ${x.message}`; }
       }
-      setSaved(result);
+      setSaved({ ...result, _visitNote: visitNote });
     });
   };
 
@@ -362,6 +364,7 @@ function BillSaved({ bill, onDone }) {
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
+      {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
         {wa && <a className="btn" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
@@ -372,6 +375,9 @@ function BillSaved({ bill, onDone }) {
   );
 }
 
+const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+
 export function PrintBill({ bill, onClose }) {
   const [c, setC] = useState(null);
   const [shop, setShop] = useState(null);
@@ -379,6 +385,11 @@ export function PrintBill({ bill, onClose }) {
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
   }, [bill.customer_id]);
+  useEffect(() => {
+    const old = document.title;
+    document.title = `Estimate ${billNo(bill)}`;
+    return () => { document.title = old; };
+  }, [bill]);
   const { lines, ok } = parseItems(bill.items);
   const items = lines.filter((l) => l.name !== 'Discount');
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
@@ -390,36 +401,48 @@ export function PrintBill({ bill, onClose }) {
         <button className="btn" onClick={onClose}>Close</button>
       </div>
       <div className="receipt">
-        <div className="r-head">
-          <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
-          {shop?.address && <div>{shop.address}</div>}
-          {shop?.phone && <div>Phone: {shop.phone}</div>}
-          <div className="r-title">ESTIMATE</div>
+        <div className="r-top">
+          <div className="r-brand">
+            <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <div>
+              <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+              {shop?.address && <div className="r-addr">{shop.address}</div>}
+              {shop?.phone && <div className="r-addr">Phone: {shop.phone}</div>}
+            </div>
+          </div>
+          <div className="r-doc">
+            <div className="r-title">Estimate</div>
+            <div className="r-no">{billNo(bill)}</div>
+          </div>
         </div>
         <div className="r-meta">
-          <div><b>Estimate no:</b> {billNo(bill)}</div>
-          <div><b>Date:</b> {fmtDate(bill.bill_date)}</div>
-          <div><b>Customer:</b> {c?.name || ''}</div>
-          {c?.phone && <div><b>Phone:</b> {c.phone}</div>}
+          <div>
+            <div className="r-label">BILLED TO</div>
+            <div className="r-name">{c?.name || ''}</div>
+            {c?.phone && <div className="r-sub">{c.phone}</div>}
+          </div>
+          <div className="r-right">
+            <div className="r-label">DATE</div>
+            <div className="r-date">{longDate(bill.bill_date)}</div>
+          </div>
         </div>
         <table className="r-table">
-          <thead><tr><th>#</th><th>Item</th><th className="num">Qty</th><th className="num">Rate</th><th className="num">Amount</th></tr></thead>
+          <thead><tr><th>ITEM</th><th className="num">QTY</th><th className="num">RATE</th><th className="num">AMOUNT</th></tr></thead>
           <tbody>
             {ok && items.length ? items.map((l, i) => (
-              <tr key={i}><td>{i + 1}</td><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{inr(l.rate)}</td><td className="num">{inr(l.qty * l.rate)}</td></tr>
+              <tr key={i}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{rs(l.rate)}</td><td className="num">{rs(l.qty * l.rate)}</td></tr>
             )) : (
-              <tr><td>1</td><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{inr(bill.amount)}</td><td className="num">{inr(bill.amount)}</td></tr>
+              <tr><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{rs(bill.amount)}</td><td className="num">{rs(bill.amount)}</td></tr>
             )}
           </tbody>
         </table>
         <div className="r-totals">
-          {disc > 0 && <><div>Subtotal</div><div>{inr(Number(bill.amount) + disc)}</div><div>Discount</div><div>− {inr(disc)}</div></>}
-          <div className="r-grand">Total</div><div className="r-grand">{inr(bill.amount)}</div>
-          <div>Paid</div><div>{inr(bill.paid_amount)}</div>
-          {dueOf(bill) > 0 && <><div><b>Balance due</b></div><div><b>{inr(dueOf(bill))}</b></div></>}
+          {disc > 0 && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc)}</div><div>Discount</div><div>− {rs(disc)}</div></>}
+          <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
+          {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
         </div>
-        {bill.notes && <div className="r-notes">Note: {bill.notes}</div>}
-        <div className="r-foot">{shop?.bill_footer || 'Thank you for shopping with us!'}<div className="r-disclaimer">This is an estimate only, not a tax invoice.</div></div>
+        {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
+        {shop?.bill_footer && <div className="r-foot">{shop.bill_footer}</div>}
       </div>
     </div>,
     document.body

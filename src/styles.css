@@ -219,39 +219,45 @@ input.mini.wide { width: 100px; }
 .ok-text { color: var(--green); }
 .row-actions .link + .link { margin-left: 12px; }
 
-/* ---------- Printable bill ---------- */
+/* ---------- Printable estimate (old CRM style) ---------- */
 .print-root { position: fixed; inset: 0; z-index: 100; background: #f1eef0; overflow: auto; padding: 20px 16px; }
-.print-toolbar { max-width: 620px; margin: 0 auto 12px; display: flex; gap: 8px; justify-content: flex-end; }
-.receipt { background: #fff; color: #111; max-width: 620px; margin: 0 auto; padding: 28px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-.r-head { text-align: center; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 12px; line-height: 1.5; }
-.r-shop { font-size: 22px; font-weight: 800; letter-spacing: .02em; }
-.r-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-bottom: 14px; }
-.r-table th { background: #f5f5f5; color: #333; }
-.r-table th, .r-table td { padding: 6px 8px; border-bottom: 1px solid #e5e5e5; font-size: 14px; }
-.r-totals { display: grid; grid-template-columns: 1fr auto; gap: 4px 24px; margin: 12px 0 0 auto; max-width: 280px; text-align: right; }
-.r-grand { font-size: 17px; font-weight: 800; border-top: 2px solid #111; padding-top: 6px; }
-.r-notes { margin-top: 12px; font-size: 13px; color: #444; }
-.r-foot { text-align: center; margin-top: 20px; padding-top: 12px; border-top: 1px dashed #aaa; color: #444; }
+.print-toolbar { max-width: 640px; margin: 0 auto 12px; display: flex; gap: 8px; justify-content: flex-end; }
+.receipt { background: #fff; color: #2a2226; max-width: 640px; margin: 0 auto; padding: 36px 40px; border-radius: 6px; font-family: 'Segoe UI', Arial, Helvetica, sans-serif; font-size: 14px; }
+.r-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 16px; border-bottom: 2px solid #c93a6c; }
+.r-brand { display: flex; align-items: center; gap: 12px; }
+.r-logo { height: 44px; width: auto; }
+.r-shop { font-size: 24px; font-weight: 700; color: #1f1a1c; }
+.r-addr { font-size: 12px; color: #7a6a70; }
+.r-doc { text-align: right; }
+.r-title { font-size: 26px; font-weight: 700; color: #c93a6c; line-height: 1.1; }
+.r-no { font-size: 12px; color: #7a6a70; margin-top: 2px; }
+.r-meta { display: flex; justify-content: space-between; gap: 16px; margin: 26px 0 22px; }
+.r-right { text-align: right; }
+.r-label { font-size: 11px; letter-spacing: .08em; color: #8a7a80; margin-bottom: 6px; }
+.r-name { font-size: 16px; font-weight: 700; color: #1f1a1c; }
+.r-sub { font-size: 13px; color: #7a6a70; margin-top: 2px; }
+.r-date { font-size: 16px; font-weight: 700; color: #1f1a1c; }
+.r-table { width: 100%; border-collapse: collapse; }
+.r-table th { background: #faf1f0; color: #8a7a80; font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; padding: 12px 8px; border-top: 1px solid #f1e3e5; border-bottom: 1px solid #f1e3e5; }
+.r-table td { padding: 12px 8px; border-bottom: 1px solid #f1e3e5; font-size: 14px; }
+.r-totals { display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; margin: 18px 8px 0 auto; max-width: 320px; text-align: right; color: #6f5c63; font-size: 13px; align-items: baseline; }
+.r-grand-l { font-size: 16px; color: #6f5c63; margin-top: 6px; }
+.r-grand { font-size: 26px; font-weight: 700; color: #b8862e; margin-top: 6px; }
+.r-notes { margin-top: 16px; font-size: 13px; color: #555; }
+.r-foot { text-align: center; margin-top: 28px; color: #8a7a80; font-size: 13px; }
+@page { margin: 0; size: auto; }
 @media print {
-  body { background: #fff !important; }
+  html, body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body > #root { display: none !important; }
   .print-root { position: static; padding: 0; background: #fff; overflow: visible; }
   .no-print { display: none !important; }
-  .receipt { border: 0; max-width: none; padding: 0; }
+  .receipt { max-width: none; border-radius: 0; padding: 14mm 16mm; }
 }
-@media (max-width: 760px) {
-  .r-meta { grid-template-columns: 1fr; }
-  .receipt { padding: 18px; }
+@media (max-width: 560px) {
+  .receipt { padding: 22px 18px; }
+  .r-top, .r-meta { flex-direction: column; align-items: flex-start; }
+  .r-doc, .r-right { text-align: left; }
 }
-.group-row td { background: rgba(255, 228, 236, .55); font-weight: 700; font-size: 13px; color: var(--brand); padding-top: 8px; padding-bottom: 8px; }
-.item-add label.inline input.price-in { width: 110px; }
-optgroup { font-weight: 700; color: var(--brand); }
-optgroup option { font-weight: 400; color: var(--text); }
-.r-title { display: inline-block; margin-top: 8px; padding: 3px 14px; border: 1.5px solid #111; font-weight: 800; letter-spacing: .18em; font-size: 13px; }
-.r-disclaimer { font-size: 11px; color: #777; margin-top: 4px; }
-.search-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
-.search-row .search { flex: 1; min-width: 220px; }
-.search-row label.inline select { width: auto; }
 
 /* ---------- Dashboard (old CRM layout) ---------- */
 .dash-title { font-family: Georgia, 'Times New Roman', serif; font-size: 32px; font-weight: 700; color: #6b1f3a; position: relative; padding-bottom: 8px; }

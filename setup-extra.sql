@@ -32,3 +32,6 @@ alter table public.shop_settings enable row level security;
 drop policy if exists "Signed-in staff manage settings" on public.shop_settings;
 create policy "Signed-in staff manage settings" on public.shop_settings
   for all to authenticated using (true) with check (true);
+
+-- 4) Allow any visit type (Purchase, Walk-in, Enquiry, ...)
+alter table public.visits drop constraint if exists visits_visit_type_check;

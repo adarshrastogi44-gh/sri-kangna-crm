@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import { ErrorBox } from '../components';
-import { fetchAll, hasTagsColumn, inr, invalidateCustomers, loadCustomers, must } from '../utils';
+import { fetchAll, hasTagsColumn, inr, insertVisits, invalidateCustomers, loadCustomers, must } from '../utils';
 import { cleanPhone, parseCSV } from './ImportCustomers';
 
 // Imports the CSV exports of the old "Kangna CRM" (Settings → Export):
@@ -149,12 +149,11 @@ export default function ImportOldCrm({ user, onDone, onCancel }) {
       for (let i = 0; i < visitRows.length; i += 100) {
         setProgress(`Visits: ${Math.min(i + 100, visitRows.length)} of ${visitRows.length}…`);
         const chunk = visitRows.slice(i, i + 100);
-        let { error } = await supabase.from('visits').insert(chunk);
-        if (error) {
-          // Some databases restrict visit types or the created_by link; retry with just the essentials
-          ({ error } = await supabase.from('visits').insert(chunk.map(({ customer_id, visit_date }) => ({ customer_id, visit_date }))));
+        try { await insertVisits(chunk); }
+        catch (e) {
+          try { await insertVisits(chunk.map(({ customer_id, visit_date }) => ({ customer_id, visit_date }))); }
+          catch (e2) { throw new Error(`Saving visits failed: ${e2.message}`); }
         }
-        if (error) throw new Error(`Saving visits failed: ${error.message}`);
       }
 
       // 4) items (name + category only)

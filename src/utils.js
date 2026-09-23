@@ -178,3 +178,13 @@ export function waSend(phone, text) {
   if (!base) return null;
   return `${base}?text=${encodeURIComponent(text)}`;
 }
+
+// Insert visits; if the database rejects the visit type (check constraint), retry without it
+export async function insertVisits(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  let { error } = await supabase.from('visits').insert(list);
+  if (error && (error.code === '23514' || /visit_type/i.test(error.message))) {
+    ({ error } = await supabase.from('visits').insert(list.map(({ visit_type, ...r }) => r)));
+  }
+  if (error) throw error;
+}
