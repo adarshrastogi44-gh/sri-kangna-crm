@@ -57,16 +57,41 @@ function FormButtons({ busy, onCancel, label = 'Save' }) {
   );
 }
 
-export function CustomerPicker({ value, onChange, onPicked, autoFocus }) {
+// Shows whether a customer is existing (with history) or new, with a quick "Add new customer" option
+function CustomerStatus({ customer }) {
+  const [h, setH] = useState(null);
+  useEffect(() => {
+    let live = true;
+    supabase.from('bills').select('amount,bill_date').eq('customer_id', customer.id).then(({ data }) => {
+      if (!live) return;
+      const bills = data || [];
+      setH({ count: bills.length, total: bills.reduce((s, x) => s + Number(x.amount || 0), 0), last: bills.map((x) => x.bill_date).sort().pop() });
+    });
+    return () => { live = false; };
+  }, [customer.id]);
+  const isNew = h && h.count === 0;
+  return (
+    <span className={`cust-status ${isNew ? 'new' : 'old'}`}>
+      {h == null ? 'Checking…' : isNew
+        ? '✓ Existing customer · no purchases yet'
+        : `✓ Existing customer · ${h.count} bill${h.count === 1 ? '' : 's'} · ${inr(h.total)} · last ${fmtDate(h.last)}`}
+    </span>
+  );
+}
+
+export function CustomerPicker({ value, onChange, onPicked, autoFocus, allowAdd = true }) {
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState(!value);
+  const [adding, setAdding] = useState(null);
+  const [justAdded, setJustAdded] = useState(false);
   const inputRef = useRef(null);
   useEffect(() => { loadCustomers().then(setList).catch(() => {}); }, []);
   const sel = list.find((c) => c.id === value);
   const ql = q.trim().toLowerCase();
   const digits = ql.replace(/\D/g, '');
+  const isPhone = digits.length >= 3 && digits.length === ql.replace(/[\s+-]/g, '').length;
   const matches = ql
     ? list.filter((c) => (c.name || '').toLowerCase().includes(ql) || (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits))).slice(0, 8)
     : [];
@@ -74,38 +99,59 @@ export function CustomerPicker({ value, onChange, onPicked, autoFocus }) {
     onChange(c.id); setEditing(false); setQ('');
     if (onPicked) setTimeout(onPicked, 0);
   };
-  // Only one customer matches → pick them and jump to the next box
+  // Full 10-digit mobile number that matches exactly one customer → pick them and move on
   useEffect(() => {
     setActive(0);
-    if (ql.length >= 3 && matches.length === 1) pick(matches[0]);
+    if (isPhone && digits.length >= 10 && matches.length === 1) pick(matches[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, list.length]);
+
+  const addModal = adding && (
+    <Modal title="Add new customer" onClose={() => setAdding(null)}>
+      <div className="new-banner">★ New customer. Fill in their details and save.</div>
+      <CustomerForm initial={adding} onCancel={() => setAdding(null)} onSaved={async (c) => {
+        invalidateCustomers();
+        const fresh = await loadCustomers(); setList(fresh);
+        setAdding(null); setJustAdded(true); pick(c);
+      }} />
+    </Modal>
+  );
 
   if (!editing && sel) {
     return (
       <div className="picked">
-        <div><b>{sel.name}</b>{sel.phone ? <span className="muted"> · {sel.phone}</span> : null}</div>
-        <button type="button" className="link" onClick={() => { setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); }}>Change</button>
+        <div>
+          <b>{sel.name}</b>{sel.phone ? <span className="muted"> · {sel.phone}</span> : null}
+          <div>{justAdded ? <span className="cust-status new">★ New customer, just added</span> : <CustomerStatus customer={sel} />}</div>
+        </div>
+        <button type="button" className="link" onClick={() => { setEditing(true); setJustAdded(false); setTimeout(() => inputRef.current?.focus(), 0); }}>Change</button>
       </div>
     );
   }
+  const startAdd = () => setAdding(isPhone ? { phone: digits } : { name: q.trim().replace(/\b\w/g, (m) => m.toUpperCase()) });
   const onKey = (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, matches.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (matches[active]) pick(matches[active]); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (matches[active]) pick(matches[active]); else if (ql && allowAdd) startAdd(); }
     else if (e.key === 'Escape' && sel) { setEditing(false); setQ(''); }
   };
   return (
     <div className="typeahead">
+      {addModal}
       <input ref={inputRef} placeholder="Type customer name or mobile number…" value={q} autoFocus={autoFocus}
         onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} autoComplete="off" />
       {ql && (
         <div className="ta-list">
-          {matches.length === 0 ? <div className="ta-empty">No customer found</div> : matches.map((c, i) => (
+          {matches.length > 0 && <div className="ta-note old">✓ Existing customer{matches.length > 1 ? 's' : ''} found</div>}
+          {matches.map((c, i) => (
             <button type="button" key={c.id} className={`ta-opt ${i === active ? 'active' : ''}`} onMouseEnter={() => setActive(i)} onClick={() => pick(c)}>
               <b>{c.name}</b>{c.phone ? <span className="muted"> · {c.phone}</span> : null}
             </button>
           ))}
+          {matches.length === 0 && <div className="ta-note new">★ New customer: no one with this {isPhone ? 'number' : 'name'} yet</div>}
+          {allowAdd && (matches.length === 0 || !isPhone) && (
+            <button type="button" className="ta-add" onClick={startAdd}>+ Add new customer{q.trim() ? ` "${q.trim()}"` : ''}</button>
+          )}
         </div>
       )}
     </div>
@@ -197,10 +243,10 @@ export function ItemPicker({ products, onPick, inputRef }) {
 const clean = (obj) =>
   Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? null : typeof v === 'string' ? v.trim() : v]));
 
-export function CustomerForm({ customer, onSaved, onCancel }) {
+export function CustomerForm({ customer, initial, onSaved, onCancel }) {
   const [f, setF] = useState({
-    name: customer?.name || '',
-    phone: customer?.phone || '',
+    name: customer?.name || initial?.name || '',
+    phone: customer?.phone || initial?.phone || '',
     email: customer?.email || '',
     address: customer?.address || '',
     date_of_birth: customer?.date_of_birth || '',
@@ -215,6 +261,7 @@ export function CustomerForm({ customer, onSaved, onCancel }) {
 
   const submit = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     run(async () => {
       const row = clean(f);
       if (tagsOk) row.tags = tags;

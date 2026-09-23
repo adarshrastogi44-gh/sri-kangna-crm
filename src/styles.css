@@ -368,3 +368,14 @@ tr.skip-row td.chk { opacity: 1; }
 .row-wa { display: inline-block; margin: 0 8px; vertical-align: middle; }
 .row-wa .btn.small { padding: 3px 8px; font-size: 12px; }
 .print-toolbar { flex-wrap: wrap; }
+.ta-note { padding: 7px 10px; font-size: 13px; font-weight: 600; border-bottom: 1px solid #f7eaee; }
+.ta-note.old { background: var(--green-bg); color: var(--green); }
+.ta-note.new { background: #fff4e0; color: #9a6200; }
+.ta-add { display: block; width: 100%; text-align: left; border: 0; background: #fff5f8; color: var(--brand); font: inherit; font-weight: 700; padding: 10px; cursor: pointer; }
+.ta-add:hover { background: var(--hover); color: #fff; }
+.cust-status { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.cust-status.old { background: var(--green-bg); color: var(--green); }
+.cust-status.new { background: #fff4e0; color: #9a6200; }
+.new-banner { background: #fff4e0; color: #9a6200; padding: 8px 12px; border-radius: 8px; font-weight: 600; margin-bottom: 12px; }
+.lookup-card .typeahead input { font-size: 16px; padding: 12px 14px; }
+.lookup-result { margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

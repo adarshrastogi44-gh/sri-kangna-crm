@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
+import { Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
 import { addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
 
 // ---------- small inline icons ----------
@@ -66,6 +66,8 @@ export default function Dashboard({ user, openCustomer, go }) {
   const [modal, setModal] = useState(null);
   const [tick, setTick] = useState(0);
   const [period, setPeriod] = useState('today');
+  const [lookup, setLookup] = useState('');
+  const [lookupKey, setLookupKey] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -161,6 +163,21 @@ export default function Dashboard({ user, openCustomer, go }) {
         </div>
       </div>
 
+      <section className="card lookup-card">
+        <h2>Customer check: new or existing?</h2>
+        <CustomerPicker key={lookupKey} value={lookup} onChange={setLookup} />
+        {lookup && (
+          <div className="lookup-result">
+            <span className="muted small">What next?</span>
+            <div className="actions">
+              <button className="btn" onClick={() => openCustomer(lookup)}>Open profile</button>
+              <button className="btn primary" onClick={() => setModal({ billFor: lookup })}>+ New bill</button>
+              <button className="btn ghost" onClick={() => { setLookup(''); setLookupKey((k) => k + 1); }}>Check another</button>
+            </div>
+          </div>
+        )}
+      </section>
+
       <div className="metrics">
         <MetricCard label="Total Sales" value={inr(m.periodSales)} icon="rupee" hideKey="total">
           <div className="tabs period-tabs" onClick={(e) => e.stopPropagation()}>
@@ -237,6 +254,7 @@ export default function Dashboard({ user, openCustomer, go }) {
         </Modal>
       )}
       {modal === 'visit' && <Modal title="Record a visit" onClose={() => setModal(null)}><VisitForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.billFor && <Modal title="New bill" onClose={() => setModal(null)}><BillForm customerId={modal.billFor} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'bill' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'customer' && (
         <Modal title="New customer" onClose={() => setModal(null)}>
