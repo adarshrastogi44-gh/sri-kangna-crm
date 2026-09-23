@@ -333,3 +333,6 @@ input.mini.wide { width: 100px; }
 .chev { width: 12px; display: inline-block; }
 .ip-items .io { padding-left: 30px; }
 .io-cat { float: right; font-size: 12px; color: var(--muted); }
+.save-bar { position: sticky; bottom: -20px; margin: 4px -20px -20px; padding: 12px 20px; background: #fff; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; box-shadow: 0 -6px 16px rgba(0,0,0,.05); z-index: 2; border-radius: 0 0 14px 14px; }
+.save-bar .form-actions { margin: 0; }
+kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1px solid #d9c9cf; border-bottom-width: 2px; border-radius: 4px; background: #fff; color: var(--text); }

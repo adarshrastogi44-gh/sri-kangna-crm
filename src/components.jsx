@@ -313,6 +313,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const qtyRef = useRef(null);
   const rateRef = useRef(null);
   const focusSel = (r) => setTimeout(() => { r.current?.focus(); r.current?.select?.(); }, 0);
+  const formRef = useRef(null);
+  // F2 = save the bill
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'F2') { e.preventDefault(); formRef.current?.requestSubmit(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => { loadProducts().then((p) => setProducts(p.filter((x) => x.active !== false))).catch(setProdErr); }, []);
 
@@ -344,11 +351,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
     if (!pick.customName.trim() || pick.customRate === '') return;
     setLines([...lines, { name: pick.customName.trim().replace(/[@\n]/g, ' '), qty: Math.max(1, Number(pick.qty || 1)), rate: Number(pick.customRate) }]);
     setPick({ ...pick, customName: '', customRate: '', qty: 1 });
+    focusSel(itemRef);
   };
   const updLine = (i, k, v) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: Math.max(0, Number(v || 0)) } : l)));
 
   const submit = (e) => {
     e.preventDefault();
+    if (busy) return; // avoid saving twice (e.g. F2 pressed quickly)
     run(async () => {
       if (!cid) throw new Error('Please select a customer.');
       if (!f.bill_date) throw new Error('Please enter the bill date (dd/mm/yyyy).');
@@ -390,7 +399,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   }
 
   return (
-    <form onSubmit={submit} className="form">
+    <form ref={formRef} onSubmit={submit} className="form bill-form">
       {!customerId && !bill && <div className="field"><span>Customer *</span><CustomerPicker value={cid} onChange={setCid} autoFocus onPicked={() => focusSel(dateRef)} /></div>}
       <div className="field"><span>Bill date *</span><DateInput value={f.bill_date} onChange={(v) => setF((x) => ({ ...x, bill_date: v }))} inputRef={dateRef} onEnter={() => focusSel(itemRef)} required /></div>
 
@@ -418,7 +427,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           <summary>Add an item that's not in the list</summary>
           <div className="item-add">
             <input placeholder="Item name" value={pick.customName} onChange={(e) => setPick({ ...pick, customName: e.target.value })} />
-            <input type="number" min="0" step="0.01" placeholder="Price ₹" value={pick.customRate} onChange={(e) => setPick({ ...pick, customRate: e.target.value })} />
+            <input type="number" min="0" step="0.01" placeholder="Price ₹" value={pick.customRate} onChange={(e) => setPick({ ...pick, customRate: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
             <button type="button" className="btn small" onClick={addCustom}>+ Add</button>
           </div>
         </details>
@@ -466,7 +476,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         <label className="check"><input type="checkbox" checked={logVisit} onChange={(e) => setLogVisit(e.target.checked)} /> Also count this as a visit on the bill date</label>
       )}
       <ErrorBox error={error} />
-      <FormButtons busy={busy} onCancel={onCancel} label={bill ? 'Update bill' : 'Save bill'} />
+      <div className="save-bar">
+        <span className="muted small">Total <b>{inr(amount)}</b> · Press <kbd>F2</kbd> to save</span>
+        <div className="form-actions">
+          <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
+        </div>
+      </div>
     </form>
   );
 }
