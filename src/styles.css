@@ -357,3 +357,9 @@ kbd { font: 12px ui-monospace, Consolas, monospace; padding: 1px 6px; border: 1p
 .camp-bar > div { height: 100%; background: var(--green); }
 tr.sent-row td { background: #f3fbf5; }
 @media (max-width: 900px) { .camp-grid { grid-template-columns: 1fr; } }
+.camp-tools { display: flex; gap: 8px; padding: 0 16px 10px; flex-wrap: wrap; }
+.camp-tools input { flex: 1; min-width: 180px; }
+th.chk, td.chk { width: 36px; padding-right: 0; }
+td.chk input, th.chk input { width: 18px; height: 18px; accent-color: var(--brand); cursor: pointer; }
+tr.skip-row td { opacity: .5; }
+tr.skip-row td.chk { opacity: 1; }

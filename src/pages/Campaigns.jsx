@@ -41,6 +41,8 @@ export default function Campaigns({ openCustomer }) {
   const [msg, setMsg] = useState(TEMPLATES[0][1]);
   const [name, setName] = useState(`Campaign ${fmtDate(today())}`);
   const [sent, setSent] = useState({});
+  const [skip, setSkip] = useState({}); // customers unticked = will not get the message
+  const [q, setQ] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -61,7 +63,7 @@ export default function Campaigns({ openCustomer }) {
   }, []);
 
   const key = `sk-campaign-${name}`;
-  useEffect(() => { setSent(loadSent(key)); }, [key]);
+  useEffect(() => { setSent(loadSent(key)); setSkip(loadSent(`${key}-skip`)); }, [key]);
 
   const allTags = useMemo(() => (data ? [...new Set(data.customers.flatMap((c) => c.tags || []))].sort() : []), [data]);
 
@@ -88,10 +90,17 @@ export default function Campaigns({ openCustomer }) {
   if (!data) return <Loading />;
 
   const shopName = data.shop?.shop_name || 'Sri Kangna';
-  const sentCount = list.filter((c) => sent[c.id]).length;
+  const chosen = list.filter((c) => !skip[c.id]);
+  const sentCount = chosen.filter((c) => sent[c.id]).length;
   const markSent = (id, v = true) => { const n = { ...sent, [id]: v }; setSent(n); saveSent(key, n); };
+  const setSkips = (n) => { setSkip(n); saveSent(`${key}-skip`, n); };
+  const toggle = (id) => setSkips({ ...skip, [id]: !skip[id] });
+  const ql = q.trim().toLowerCase();
+  const shown = ql ? list.filter((c) => (c.name || '').toLowerCase().includes(ql) || (c.phone || '').includes(ql)) : list;
+  const selectAll = (v) => { const n = { ...skip }; shown.forEach((c) => { n[c.id] = !v; }); setSkips(n); };
+  const allShownOn = shown.length > 0 && shown.every((c) => !skip[c.id]);
   const send = (c) => { window.open(`${waLink(c.phone)}?text=${encodeURIComponent(fill(msg, c, shopName))}`, '_blank'); markSent(c.id); };
-  const next = list.find((c) => !sent[c.id]);
+  const next = chosen.find((c) => !sent[c.id]);
 
   return (
     <>
@@ -127,24 +136,30 @@ export default function Campaigns({ openCustomer }) {
 
         <section className="card flush">
           <div className="camp-head">
-            <div><h2 style={{ margin: 0 }}>3. Send</h2><div className="muted small">{sentCount} of {list.length} sent</div></div>
+            <div><h2 style={{ margin: 0 }}>3. Send</h2><div className="muted small"><b>{chosen.length}</b> of {list.length} selected · {sentCount} of {chosen.length} sent</div></div>
             <div className="actions">
               {sentCount > 0 && <button className="btn small ghost" onClick={() => { setSent({}); saveSent(key, {}); }}>Reset</button>}
               <button className="btn primary" disabled={!next || !msg.trim()} onClick={() => send(next)}>{next ? `Send next → ${next.name}` : 'All sent ✓'}</button>
             </div>
           </div>
-          <div className="camp-bar"><div style={{ width: `${list.length ? (sentCount / list.length) * 100 : 0}%` }} /></div>
+          <div className="camp-bar"><div style={{ width: `${chosen.length ? (sentCount / chosen.length) * 100 : 0}%` }} /></div>
+          <div className="camp-tools">
+            <input placeholder="Find a customer in this list…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button className="btn small" onClick={() => selectAll(true)}>Select all</button>
+            <button className="btn small" onClick={() => selectAll(false)}>Unselect all</button>
+          </div>
           {list.length === 0 ? <Empty>No customers in this group.</Empty> : (
             <table>
-              <thead><tr><th>Customer</th><th className="num">Points</th><th className="hide-sm">Last visit</th><th></th></tr></thead>
+              <thead><tr><th className="chk"><input type="checkbox" checked={allShownOn} onChange={(e) => selectAll(e.target.checked)} aria-label="Select all" /></th><th>Customer</th><th className="num">Points</th><th className="hide-sm">Last visit</th><th></th></tr></thead>
               <tbody>
-                {list.map((c) => (
-                  <tr key={c.id} className={sent[c.id] ? 'sent-row' : ''}>
+                {shown.map((c) => (
+                  <tr key={c.id} className={skip[c.id] ? 'skip-row' : sent[c.id] ? 'sent-row' : ''}>
+                    <td className="chk"><input type="checkbox" checked={!skip[c.id]} onChange={() => toggle(c.id)} aria-label={`Send to ${c.name}`} /></td>
                     <td><button className="link strong" onClick={() => openCustomer(c.id)}>{c.name}</button> <Tags tags={c.tags} /><div className="muted small">{c.phone}</div></td>
                     <td className="num"><span className="pts">{c.points}</span></td>
                     <td className="hide-sm">{fmtDate(c.last)}</td>
                     <td className="row-actions">
-                      {sent[c.id]
+                      {skip[c.id] ? <span className="muted small">Not sending</span> : sent[c.id]
                         ? <><span className="ok-text small">✓ Sent</span> <button className="link" onClick={() => markSent(c.id, false)}>Undo</button></>
                         : <button className="btn small" disabled={!msg.trim()} onClick={() => send(c)}>WhatsApp</button>}
                     </td>
