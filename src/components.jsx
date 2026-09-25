@@ -670,27 +670,15 @@ function Receipt({ bill, c, shop, innerRef, small }) {
 
 // 80 mm thermal roll receipt (72 mm printable), black & white.
 function ThermalReceipt({ bill, c, shop }) {
-  const ref = useRef(null);
-  const [pageMm, setPageMm] = useState(null);
   const { lines, ok } = parseItems(bill.items);
   const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
   const red = redeemedOf(bill);
-  // Make the printed page exactly 80 mm wide and exactly as long as the bill (no blank paper, no shifting)
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const measure = () => setPageMm(Math.ceil((el.offsetHeight * 25.4) / 96) + 6);
-    measure();
-    const imgs = el.querySelectorAll('img');
-    imgs.forEach((im) => im.addEventListener('load', measure));
-    const t = setTimeout(measure, 400);
-    return () => { clearTimeout(t); imgs.forEach((im) => im.removeEventListener('load', measure)); };
-  }, [bill, c, shop]);
   return (
     <>
-      <style>{`@page { size: 80mm ${pageMm || 200}mm; margin: 0; }`}</style>
-      <div className="thermal" ref={ref}>
+      {/* No fixed page height: the bill starts at the very top of the roll and the printer cuts right after it */}
+      <style>{'@page { margin: 0; }'}</style>
+      <div className="thermal">
         <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
         <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
         {shop?.address && <div className="t-c">{shop.address}</div>}
@@ -782,7 +770,7 @@ export function PrintBill({ bill, onClose }) {
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
-      {size === 'thermal' && <p className="print-hint no-print">Helett 80 mm: Destination = Helett printer · Margins None · Scale Default (100) · Headers and footers off. The page size is set automatically to 80 mm × bill length.</p>}
+      {size === 'thermal' && <p className="print-hint no-print">Helett 80 mm → More settings: Paper size “80 × 3276 mm” (Receipt) · Margins None · Scale Default · untick “Headers and footers”.</p>}
       {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
       {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
       {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
