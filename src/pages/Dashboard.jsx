@@ -30,11 +30,11 @@ function useHidden(key) {
 
 const Dots = () => <span className="dots" aria-label="Hidden">●●●●●●</span>;
 
-function MetricCard({ label, value, icon, hideKey, children, onClick }) {
+function MetricCard({ label, value, icon, hideKey, children, onClick, tone = 'rose', hint }) {
   const [hidden, toggle] = useHidden(hideKey || label);
   const canHide = Boolean(hideKey);
   return (
-    <div className={`metric ${onClick ? 'clickable' : ''}`} onClick={onClick}>
+    <div className={`metric tone-${tone} ${onClick ? 'clickable' : ''}`} onClick={onClick}>
       <div className="metric-top">
         <div className="metric-label">{label}</div>
         <div className="metric-icons">
@@ -47,10 +47,26 @@ function MetricCard({ label, value, icon, hideKey, children, onClick }) {
         </div>
       </div>
       <div className="metric-value">{canHide && hidden ? <Dots /> : value}</div>
+      {hint && <div className="metric-hint">{hint}</div>}
       {children}
     </div>
   );
 }
+
+function HeroStat({ label, value, hideKey, onClick }) {
+  const [hidden, toggle] = useHidden(hideKey || label);
+  return (
+    <div className={`hero-stat ${onClick ? 'clickable' : ''}`} onClick={onClick}>
+      <div className="hero-stat-label">{label}
+        {hideKey && <button type="button" className="hero-eye" onClick={(e) => { e.stopPropagation(); toggle(); }} aria-label={hidden ? 'Show value' : 'Hide value'}><Icon name={hidden ? 'eyeOff' : 'eye'} size={15} /></button>}
+      </div>
+      <div className="hero-stat-value">{hideKey && hidden ? '• • • • •' : value}</div>
+    </div>
+  );
+}
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+const initials = (n = '') => n.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const Avatar = ({ name }) => <span className="avatar">{initials(name)}</span>;
 
 const PERIODS = [['today', 'Today'], ['month', 'This Month'], ['90', '90 Days'], ['180', '6 Months'], ['365', '1 Year']];
 function periodStart(p) {
@@ -135,6 +151,8 @@ export default function Dashboard({ user, openCustomer, go }) {
     occasions.sort((a, b) => a.n - b.n);
 
     return {
+      todaySales: d.bills.filter((b) => b.bill_date === t).reduce((x, b) => x + Number(b.amount || 0), 0),
+      billsToday: d.bills.filter((b) => b.bill_date === t).length,
       lifetime, periodSales, avg: d.bills.length ? lifetime / d.bills.length : 0,
       todays: [...todays].map((id) => d.cmap[id]).filter(Boolean), bdays, annivs, repeat, inactive,
       series, catRows, occasions, fups: d.fups.map((f) => ({ ...f, c: d.cmap[f.customer_id] })),
@@ -150,21 +168,31 @@ export default function Dashboard({ user, openCustomer, go }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1 className="dash-title">Dashboard</h1>
-          <p className="muted dash-sub">Overview of today's activity across the store.</p>
+      <section className="dash-hero">
+        <div className="hero-main">
+          <div className="hero-date">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          <h1 className="hero-title">{greeting()}, Sri Kangna</h1>
+          <p className="hero-sub">Here’s how the shop is doing today.</p>
+          <div className="hero-stats">
+            <HeroStat label="Today’s sales" value={inr(m.todaySales)} hideKey="hero-sales" />
+            <HeroStat label="Bills today" value={m.billsToday} onClick={() => go('bills')} />
+            <HeroStat label="Customers today" value={m.todays.length} onClick={() => listModal("Today's customers", m.todays)} />
+            <HeroStat label="Follow-ups due" value={m.fups.length} onClick={() => go('followups')} />
+          </div>
         </div>
-        <div className="actions">
-          <button className="btn" onClick={() => go('campaigns')}>📣 Campaigns</button>
-          <button className="btn" onClick={() => setModal('customer')}>+ Customer</button>
-          <button className="btn" onClick={() => setModal('visit')}>+ Visit</button>
-          <button className="btn primary" onClick={() => setModal('bill')}>+ Add Bill</button>
+        <div className="hero-side">
+          <img src="/logo.png" alt="" className="hero-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+          <div className="hero-actions">
+            <button className="hero-btn solid" onClick={() => setModal('bill')}>+ New bill</button>
+            <button className="hero-btn" onClick={() => setModal('customer')}>+ Customer</button>
+            <button className="hero-btn" onClick={() => setModal('visit')}>+ Visit</button>
+            <button className="hero-btn" onClick={() => go('campaigns')}>📣 Campaigns</button>
+          </div>
         </div>
-      </div>
+      </section>
 
       <section className="card lookup-card">
-        <h2>Customer check: new or existing?</h2>
+        <h2><span className="lookup-ic">🔍</span> Customer check — new or existing?</h2>
         <CustomerPicker key={lookupKey} value={lookup} onChange={setLookup} />
         {lookup && (
           <div className="lookup-result">
@@ -179,41 +207,41 @@ export default function Dashboard({ user, openCustomer, go }) {
       </section>
 
       <div className="metrics">
-        <MetricCard label="Total Sales" value={inr(m.periodSales)} icon="rupee" hideKey="total">
+        <MetricCard label="Total Sales" value={inr(m.periodSales)} icon="rupee" hideKey="total" tone="rose">
           <div className="tabs period-tabs" onClick={(e) => e.stopPropagation()}>
             {PERIODS.map(([k, l]) => <button key={k} className={period === k ? 'active' : ''} onClick={() => setPeriod(k)}>{l}</button>)}
           </div>
         </MetricCard>
-        <MetricCard label="Lifetime Sales" value={inr(m.lifetime)} icon="wallet" hideKey="lifetime" />
-        <MetricCard label="Average Bill Value" value={inr(Math.round(m.avg))} icon="receipt" hideKey="avg" />
+        <MetricCard label="Lifetime Sales" value={inr(m.lifetime)} icon="wallet" hideKey="lifetime" tone="gold" hint="All bills since the start" />
+        <MetricCard label="Average Bill Value" value={inr(Math.round(m.avg))} icon="receipt" hideKey="avg" tone="violet" hint="Lifetime sales ÷ number of bills" />
 
-        <MetricCard label="Today's Customers" value={m.todays.length} icon="users" onClick={() => listModal("Today's customers", m.todays)} />
-        <MetricCard label="Birthdays Today" value={m.bdays.length} icon="cake" onClick={() => listModal('Birthdays today', m.bdays, 'birthday')} />
-        <MetricCard label="Anniversaries Today" value={m.annivs.length} icon="heart" onClick={() => listModal('Anniversaries today', m.annivs, 'anniversary')} />
+        <MetricCard label="Today's Customers" value={m.todays.length} icon="users" tone="teal" hint="Visited or billed today" onClick={() => listModal("Today's customers", m.todays)} />
+        <MetricCard label="Birthdays Today" value={m.bdays.length} icon="cake" tone="amber" hint="Tap to send wishes" onClick={() => listModal('Birthdays today', m.bdays, 'birthday')} />
+        <MetricCard label="Anniversaries Today" value={m.annivs.length} icon="heart" tone="rose" hint="Tap to send wishes" onClick={() => listModal('Anniversaries today', m.annivs, 'anniversary')} />
 
-        <MetricCard label="Repeat Customers" value={m.repeat.length} icon="repeat" onClick={() => listModal('Repeat customers (2+ visits)', m.repeat)} />
-        <MetricCard label="Inactive Customers (30+ days)" value={m.inactive.length} icon="userX" onClick={() => listModal('Inactive customers (no visit in 30+ days)', m.inactive, 'collection')} />
+        <MetricCard label="Repeat Customers" value={m.repeat.length} icon="repeat" tone="green" hint="2 or more visits" onClick={() => listModal('Repeat customers (2+ visits)', m.repeat)} />
+        <MetricCard label="Inactive Customers (30+ days)" value={m.inactive.length} icon="userX" tone="slate" hint="Tap to invite them back" onClick={() => listModal('Inactive customers (no visit in 30+ days)', m.inactive, 'collection')} />
       </div>
 
       <div className="dash-charts">
         <section className="card">
-          <h2>Sales — Last 30 Days</h2>
+          <div className="card-head"><h2>Sales — last 30 days</h2><span className="muted small">Hover the line to see each day</span></div>
           <LineChart data={m.series} />
         </section>
         <section className="card">
-          <h2>Sales by Category</h2>
+          <div className="card-head"><h2>Sales by category</h2><span className="muted small">Last 30 days</span></div>
           {m.catRows.length === 0 ? <Empty>No sales in the last 30 days.</Empty> : <CategoryBars rows={m.catRows} />}
         </section>
       </div>
 
       <div className="cols">
         <section className="card">
-          <h2>Follow-ups due</h2>
+          <div className="card-head"><h2>Follow-ups due</h2><button className="link small" onClick={() => go('followups')}>View all →</button></div>
           {m.fups.length === 0 ? <Empty>Nothing due today.</Empty> : (
             <ul className="list">
               {m.fups.map((f) => (
                 <li key={f.id} onClick={() => openCustomer(f.customer_id)}>
-                  <div><strong>{f.c?.name || 'Unknown'}</strong><div className="muted small">{f.notes || '—'}</div></div>
+                  <div className="who"><Avatar name={f.c?.name} /><div><strong>{f.c?.name || 'Unknown'}</strong><div className="muted small">{f.notes || '—'}</div></div></div>
                   <div className="right">{f.due_date < today() ? <Badge tone="red">Overdue · {fmtDate(f.due_date)}</Badge> : <Badge tone="amber">Today</Badge>}</div>
                 </li>
               ))}
@@ -221,12 +249,12 @@ export default function Dashboard({ user, openCustomer, go }) {
           )}
         </section>
         <section className="card">
-          <h2>Birthdays &amp; anniversaries (next 7 days)</h2>
+          <div className="card-head"><h2>Birthdays &amp; anniversaries</h2><span className="muted small">Next 7 days</span></div>
           {m.occasions.length === 0 ? <Empty>None coming up.</Empty> : (
             <ul className="list">
               {m.occasions.map((o, i) => (
                 <li key={i} onClick={() => openCustomer(o.c.id)}>
-                  <div><strong>{o.c.name}</strong><div className="muted small">{o.what}{o.c.phone ? ` · ${o.c.phone}` : ''}</div></div>
+                  <div className="who"><Avatar name={o.c.name} /><div><strong>{o.c.name}</strong><div className="muted small">{o.what === 'Birthday' ? '🎂' : '💍'} {o.what}{o.c.phone ? ` · ${o.c.phone}` : ''}</div></div></div>
                   <div className="right" onClick={(e) => e.stopPropagation()}>
                     <Badge tone={o.n === 0 ? 'green' : 'gray'}>{o.n === 0 ? 'Today' : o.n === 1 ? 'Tomorrow' : `In ${o.n} days`}</Badge>
                     <WhatsAppMenu customer={o.c} small only={[o.what === 'Birthday' ? 'birthday' : 'anniversary']} />
@@ -288,6 +316,10 @@ function LineChart({ data }) {
           const px = ((e.clientX - r.left) / r.width) * W;
           setHover(Math.max(0, Math.min(data.length - 1, Math.round(((px - L) / (W - L - R)) * (data.length - 1)))));
         }}>
+        <defs>
+          <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#d6335a" stopOpacity=".28" /><stop offset="1" stopColor="#d6335a" stopOpacity="0" /></linearGradient>
+          <linearGradient id="salesLine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#c98a3a" /><stop offset="1" stopColor="#d6335a" /></linearGradient>
+        </defs>
         {ticks.map((v) => (
           <g key={v}>
             <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="grid" />
