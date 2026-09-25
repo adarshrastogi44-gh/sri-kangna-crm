@@ -40,7 +40,7 @@ code { background: var(--brand-soft); padding: 1px 5px; border-radius: 4px; }
 .brand.big { font-size: 20px; margin-bottom: 4px; }
 .logo { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #ff6b88, #c72650); color: #fff; font-size: 13px; }
 nav { display: flex; gap: 4px; overflow-x: auto; flex: 1; }
-nav button { border: 0; background: none; padding: 8px 12px; border-radius: 8px; font: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; }
+nav button { border: 0; background: none; padding: 8px 9px; border-radius: 8px; font: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; }
 nav button:hover { background: var(--bg); color: var(--text); }
 nav button.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
 main { max-width: 1150px; margin: 0 auto; padding: 20px; }
@@ -476,3 +476,13 @@ td.pick input, th.pick input { width: auto; }
 .staff-date { width: 150px; }
 .break-end { display: flex; gap: 8px; align-items: center; }
 tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var(--line); }
+
+/* ---------- Expenses ---------- */
+.exp-cat { display: grid; grid-template-columns: 130px 1fr 90px; gap: 10px; align-items: center; width: 100%; border: 0; background: none; padding: 6px 4px; border-radius: 8px; font: inherit; text-align: left; cursor: pointer; color: var(--text); }
+.exp-cat:hover { background: var(--brand-soft); }
+.exp-cat.on { background: var(--brand-soft); outline: 1px solid var(--brand); }
+.exp-cat b { text-align: right; font-variant-numeric: tabular-nums; }
+.exp-bar { height: 10px; background: #f7e4ea; border-radius: 5px; overflow: hidden; }
+.exp-bar > span { display: block; height: 100%; background: var(--brand); border-radius: 5px; }
+.exp-bar.amber > span { background: #d99a1c; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
