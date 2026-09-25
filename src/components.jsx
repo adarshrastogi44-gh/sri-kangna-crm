@@ -669,7 +669,7 @@ function Receipt({ bill, c, shop, innerRef, small }) {
 }
 
 // 80 mm thermal roll receipt (72 mm printable), black & white.
-function ThermalReceipt({ bill, c, shop }) {
+function ThermalReceipt({ bill, c, shop, shift = 0 }) {
   const { lines, ok } = parseItems(bill.items);
   const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
@@ -677,7 +677,7 @@ function ThermalReceipt({ bill, c, shop }) {
   return (
     <>
       {/* No fixed page height: the bill starts at the very top of the roll and the printer cuts right after it */}
-      <style>{'@page { margin: 0; }'}</style>
+      <style>{`@page { margin: 0; } @media print { .thermal { margin-left: ${shift}mm !important; } }`}</style>
       <div className="thermal">
         <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
         <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
@@ -736,6 +736,8 @@ export function PrintBill({ bill, onClose }) {
   const [size, setSizeState] = useState(getPrintSize);
   const [pos, setPos] = useState(0);
   const setSize = (s) => { setSizeState(s); try { localStorage.setItem('sk-print-size3', s); } catch { /* ignore */ } };
+  const [shift, setShiftState] = useState(() => { try { return Number(localStorage.getItem('sk-thermal-shift')) || 0; } catch { return 0; } });
+  const setShift = (v) => { const n = Math.max(-15, Math.min(15, v)); setShiftState(n); try { localStorage.setItem('sk-thermal-shift', String(n)); } catch { /* ignore */ } };
   useEffect(() => {
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
@@ -770,12 +772,21 @@ export function PrintBill({ bill, onClose }) {
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
-      {size === 'thermal' && <p className="print-hint no-print">Helett 80 mm → More settings: Paper size “80 × 3276 mm” (Receipt) · Margins None · Scale Default · untick “Headers and footers”.</p>}
+      {size === 'thermal' && (
+        <div className="print-hint no-print shift-row">
+          <span>Bill position on paper:</span>
+          <button className="btn small" onClick={() => setShift(shift - 1)}>← Left</button>
+          <b>{shift > 0 ? `+${shift}` : shift} mm</b>
+          <button className="btn small" onClick={() => setShift(shift + 1)}>Right →</button>
+          {shift !== 0 && <button className="link" onClick={() => setShift(0)}>Reset</button>}
+          <span className="muted">· Print settings: Paper “Receipt / 80 × 3276 mm” · Margins None · untick Headers and footers</span>
+        </div>
+      )}
       {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
       {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
       {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
       {size === 'quarter' && <Sheets4 slots={slots} cmap={{ [bill.customer_id]: c }} shop={shop} />}
-      {size === 'thermal' && <ThermalReceipt bill={bill} c={c} shop={shop} />}
+      {size === 'thermal' && <ThermalReceipt bill={bill} c={c} shop={shop} shift={shift} />}
       {size === 'slip' && <div className="slip"><Receipt bill={bill} c={c} shop={shop} small /></div>}
     </div>,
     document.body
