@@ -670,44 +670,57 @@ function Receipt({ bill, c, shop, innerRef, small }) {
 
 // 80 mm thermal roll receipt (72 mm printable), black & white.
 function ThermalReceipt({ bill, c, shop }) {
+  const ref = useRef(null);
+  const [pageMm, setPageMm] = useState(null);
   const { lines, ok } = parseItems(bill.items);
   const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
   const red = redeemedOf(bill);
+  // Make the printed page exactly 80 mm wide and exactly as long as the bill (no blank paper, no shifting)
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const measure = () => setPageMm(Math.ceil((el.offsetHeight * 25.4) / 96) + 6);
+    measure();
+    const imgs = el.querySelectorAll('img');
+    imgs.forEach((im) => im.addEventListener('load', measure));
+    const t = setTimeout(measure, 400);
+    return () => { clearTimeout(t); imgs.forEach((im) => im.removeEventListener('load', measure)); };
+  }, [bill, c, shop]);
   return (
-    <div className="thermal">
-      <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
-      <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
-      {shop?.address && <div className="t-c">{shop.address}</div>}
-      {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
-      <div className="t-title">ESTIMATE</div>
-      <div className="t-row"><span>No: {billNo(bill)}</span><span>{shortDate(bill.bill_date)}</span></div>
-      <div className="t-row"><span>Name: <b>{c?.name || ''}</b></span></div>
-      {c?.phone && <div className="t-row"><span>Mob: {c.phone}</span></div>}
-      <div className="t-hr" />
-      <div className="t-head"><span>Item</span><span>Qty × Rate</span><span>Amt</span></div>
-      <div className="t-hr" />
-      {items.length ? items.map((l, i) => (
-        <div className="t-item" key={i}>
-          <div className="t-name">{l.name}</div>
-          <div className="t-line"><span /><span>{l.qty} × {num(l.rate)}</span><span>{num(l.qty * l.rate)}</span></div>
-        </div>
-      )) : (
-        <div className="t-item"><div className="t-name">{bill.items || 'Purchase'}</div><div className="t-line"><span /><span>1 × {num(bill.amount)}</span><span>{num(bill.amount)}</span></div></div>
-      )}
-      <div className="t-hr" />
-      {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
-      {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
-      {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
-      <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
-      {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
-      <div className="t-hr" />
-      {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
-      {termsLines(shop?.terms).length > 0 && (
-        <div className="t-terms"><b>Terms &amp; Conditions</b><ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol></div>
-      )}
-      <div className="t-c t-foot">{shop?.bill_footer || 'Thank you! Visit again.'}</div>
-    </div>
+    <>
+      <style>{`@page { size: 80mm ${pageMm || 200}mm; margin: 0; }`}</style>
+      <div className="thermal" ref={ref}>
+        <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
+        <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+        {shop?.address && <div className="t-c">{shop.address}</div>}
+        {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
+        <div className="t-title">ESTIMATE</div>
+        <div className="t-row"><span>No: {billNo(bill)}</span><span>{shortDate(bill.bill_date)}</span></div>
+        <div className="t-row"><span>Name: <b>{c?.name || ''}</b></span></div>
+        {c?.phone && <div className="t-row"><span>Mob: {c.phone}</span></div>}
+        <div className="t-hr" />
+        <div className="t-grid t-head"><span>Item</span><span>Qty</span><span>Rate</span><span>Amt</span></div>
+        <div className="t-hr" />
+        {(items.length ? items : [{ name: bill.items || 'Purchase', qty: 1, rate: Number(bill.amount) }]).map((l, i) => (
+          <div className="t-grid t-item" key={i}>
+            <span className="t-name">{l.name}</span><span>{l.qty}</span><span>{num(l.rate)}</span><span>{num(l.qty * l.rate)}</span>
+          </div>
+        ))}
+        <div className="t-hr" />
+        {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
+        {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
+        {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
+        <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
+        {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
+        <div className="t-hr" />
+        {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
+        {termsLines(shop?.terms).length > 0 && (
+          <div className="t-terms"><b>Terms &amp; Conditions</b><ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol></div>
+        )}
+        <div className="t-c t-foot">{shop?.bill_footer || 'Thank you! Visit again.'}</div>
+      </div>
+    </>
   );
 }
 
@@ -726,7 +739,6 @@ function Sheets4({ slots, cmap, shop }) {
 
 const PAGE_A4 = <style>{'@page { size: A4 portrait; margin: 0; }'}</style>;
 const PAGE_SLIP = <style>{'@page { size: 3.5in 5in; margin: 0; }'}</style>;
-const PAGE_THERMAL = <style>{'@page { margin: 0; }'}</style>;
 const getPrintSize = () => { try { const v = localStorage.getItem('sk-print-size3'); return ['full', 'quarter', 'slip', 'thermal'].includes(v) ? v : 'thermal'; } catch { return 'thermal'; } };
 
 export function PrintBill({ bill, onClose }) {
@@ -752,7 +764,6 @@ export function PrintBill({ bill, onClose }) {
     <div className="print-root">
       {size === 'quarter' && PAGE_A4}
       {size === 'slip' && PAGE_SLIP}
-      {size === 'thermal' && PAGE_THERMAL}
       <div className="print-toolbar no-print">
         <div className="tabs">
           <button className={size === 'thermal' ? 'active' : ''} onClick={() => setSize('thermal')}>Thermal 80 mm</button>
@@ -771,7 +782,7 @@ export function PrintBill({ bill, onClose }) {
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
-      {size === 'thermal' && <p className="print-hint no-print">Helett BillQuick Lite 80 mm: Destination = Helett printer · Paper size = 80 mm (e.g. “80 × 3276 mm” / “80(72) × 297 mm”) · Margins None · Scale 100 · Headers and footers off.</p>}
+      {size === 'thermal' && <p className="print-hint no-print">Helett 80 mm: Destination = Helett printer · Margins None · Scale Default (100) · Headers and footers off. The page size is set automatically to 80 mm × bill length.</p>}
       {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
       {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
       {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
