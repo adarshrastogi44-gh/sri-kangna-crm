@@ -668,6 +668,50 @@ function Receipt({ bill, c, shop, innerRef, small }) {
   );
 }
 
+// 80 mm thermal roll receipt (72 mm printable), black & white.
+function ThermalReceipt({ bill, c, shop }) {
+  const { lines, ok } = parseItems(bill.items);
+  const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+  const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
+  const red = redeemedOf(bill);
+  return (
+    <>
+      {/* No fixed page height: the bill starts at the very top of the roll and the printer cuts right after it */}
+      <style>{'@page { margin: 0; }'}</style>
+      <div className="thermal">
+        <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
+        <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+        {shop?.address && <div className="t-c">{shop.address}</div>}
+        {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
+        <div className="t-title">ESTIMATE</div>
+        <div className="t-row"><span>No: {billNo(bill)}</span><span>{shortDate(bill.bill_date)}</span></div>
+        <div className="t-row"><span>Name: <b>{c?.name || ''}</b></span></div>
+        {c?.phone && <div className="t-row"><span>Mob: {c.phone}</span></div>}
+        <div className="t-hr" />
+        <div className="t-grid t-head"><span>Item</span><span>Qty</span><span>Rate</span><span>Amt</span></div>
+        <div className="t-hr" />
+        {(items.length ? items : [{ name: bill.items || 'Purchase', qty: 1, rate: Number(bill.amount) }]).map((l, i) => (
+          <div className="t-grid t-item" key={i}>
+            <span className="t-name">{l.name}</span><span>{l.qty}</span><span>{num(l.rate)}</span><span>{num(l.qty * l.rate)}</span>
+          </div>
+        ))}
+        <div className="t-hr" />
+        {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
+        {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
+        {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
+        <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
+        {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
+        <div className="t-hr" />
+        {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
+        {termsLines(shop?.terms).length > 0 && (
+          <div className="t-terms"><b>Terms &amp; Conditions</b><ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol></div>
+        )}
+        <div className="t-c t-foot">{shop?.bill_footer || 'Thank you! Visit again.'}</div>
+      </div>
+    </>
+  );
+}
+
 // 4 bills (3.5 × 5 in each) on one A4 sheet. `slots` = array of bills or null (empty spot).
 function Sheets4({ slots, cmap, shop }) {
   const pages = [];
@@ -683,7 +727,7 @@ function Sheets4({ slots, cmap, shop }) {
 
 const PAGE_A4 = <style>{'@page { size: A4 portrait; margin: 0; }'}</style>;
 const PAGE_SLIP = <style>{'@page { size: 3.5in 5in; margin: 0; }'}</style>;
-const getPrintSize = () => { try { const v = localStorage.getItem('sk-print-size'); return ['full', 'quarter', 'slip'].includes(v) ? v : 'full'; } catch { return 'full'; } };
+const getPrintSize = () => { try { const v = localStorage.getItem('sk-print-size3'); return ['full', 'quarter', 'slip', 'thermal'].includes(v) ? v : 'thermal'; } catch { return 'thermal'; } };
 
 export function PrintBill({ bill, onClose }) {
   const receiptRef = useRef(null);
@@ -691,7 +735,7 @@ export function PrintBill({ bill, onClose }) {
   const [shop, setShop] = useState(null);
   const [size, setSizeState] = useState(getPrintSize);
   const [pos, setPos] = useState(0);
-  const setSize = (s) => { setSizeState(s); try { localStorage.setItem('sk-print-size', s); } catch { /* ignore */ } };
+  const setSize = (s) => { setSizeState(s); try { localStorage.setItem('sk-print-size3', s); } catch { /* ignore */ } };
   useEffect(() => {
     supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
     loadSettings().then(setShop);
@@ -710,6 +754,7 @@ export function PrintBill({ bill, onClose }) {
       {size === 'slip' && PAGE_SLIP}
       <div className="print-toolbar no-print">
         <div className="tabs">
+          <button className={size === 'thermal' ? 'active' : ''} onClick={() => setSize('thermal')}>Thermal 80 mm</button>
           <button className={size === 'full' ? 'active' : ''} onClick={() => setSize('full')}>Full A4</button>
           <button className={size === 'quarter' ? 'active' : ''} onClick={() => setSize('quarter')}>4 per A4</button>
           <button className={size === 'slip' ? 'active' : ''} onClick={() => setSize('slip')}>3.5 × 5 in paper</button>
@@ -725,10 +770,12 @@ export function PrintBill({ bill, onClose }) {
         <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
         <button className="btn" onClick={onClose}>Close</button>
       </div>
+      {size === 'thermal' && <p className="print-hint no-print">Helett 80 mm → More settings: Paper size “80 × 3276 mm” (Receipt) · Margins None · Scale Default · untick “Headers and footers”.</p>}
       {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
       {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
       {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
       {size === 'quarter' && <Sheets4 slots={slots} cmap={{ [bill.customer_id]: c }} shop={shop} />}
+      {size === 'thermal' && <ThermalReceipt bill={bill} c={c} shop={shop} />}
       {size === 'slip' && <div className="slip"><Receipt bill={bill} c={c} shop={shop} small /></div>}
     </div>,
     document.body
