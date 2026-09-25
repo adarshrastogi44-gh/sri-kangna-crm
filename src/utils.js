@@ -52,18 +52,87 @@ export const must = ({ data, error }) => {
 };
 
 // Supabase returns max 1000 rows per request, so page through everything
-export async function fetchAll(build) {
+// ---------- Fast data loading ----------
+// 1) Results are kept in memory for a short time, so going back to a page is instant.
+// 2) Any save / edit / delete made from this CRM clears the memory, so you always see your own changes.
+// 3) Big tables are downloaded in several pieces at the same time instead of one after another.
+const CACHE_MS = 3 * 60 * 1000;
+const queryCache = new Map();
+let customerCache = null;
+export function clearDataCache() { queryCache.clear(); customerCache = null; }
+
+(function watchWrites() {
+  try {
+    const proto = Object.getPrototypeOf(supabase.from('customers'));
+    ['insert', 'update', 'upsert', 'delete'].forEach((m) => {
+      const orig = proto && proto[m];
+      if (typeof orig !== 'function' || orig.__skWrapped) return;
+      const wrapped = function (...args) {
+        clearDataCache();
+        const b = orig.apply(this, args);
+        try {
+          const then = b.then.bind(b);
+          b.then = (res, rej) => then((v) => { clearDataCache(); return res ? res(v) : v; }, rej);
+        } catch { /* ignore */ }
+        return b;
+      };
+      wrapped.__skWrapped = true;
+      proto[m] = wrapped;
+    });
+    const rpc = supabase.rpc.bind(supabase);
+    supabase.rpc = (fn, ...rest) => {
+      if (/delete|import/i.test(fn)) clearDataCache();
+      return rpc(fn, ...rest);
+    };
+  } catch { /* ignore */ }
+})();
+
+async function fetchAllNow(build) {
   const size = 1000;
-  let from = 0;
-  let out = [];
-  for (;;) {
-    const { data, error } = await build().range(from, from + size - 1);
+  const page = async (i) => {
+    const { data, error } = await build().range(i * size, i * size + size - 1);
     if (error) throw error;
-    out = out.concat(data || []);
-    if (!data || data.length < size) break;
-    from += size;
+    return data || [];
+  };
+  let out = await page(0);
+  if (out.length < size) return out;
+  // Fetch the remaining pieces 4 at a time, in parallel
+  for (let next = 1; ; next += 4) {
+    const parts = await Promise.all([0, 1, 2, 3].map((k) => page(next + k)));
+    let done = false;
+    for (const p of parts) {
+      out = out.concat(p);
+      if (p.length < size) { done = true; break; }
+    }
+    if (done) return out;
   }
-  return out;
+}
+
+function queryKey(build) {
+  try {
+    const b = build();
+    return b.url instanceof URL ? b.url.toString() : null; // only real Supabase queries are cached
+  } catch { return null; }
+}
+
+export async function fetchAll(build, { fresh = false } = {}) {
+  const key = queryKey(build);
+  const hit = key && queryCache.get(key);
+  if (!fresh && hit && Date.now() - hit.t < CACHE_MS) return hit.p;
+  const p = fetchAllNow(build);
+  if (key) {
+    queryCache.set(key, { t: Date.now(), p });
+    p.catch(() => queryCache.delete(key));
+  }
+  return p;
+}
+
+// Load the most-used data in the background right after login
+export function warmUp() {
+  loadCustomers().catch(() => {});
+  loadSettings().catch(() => {});
+  fetchAll(() => supabase.from('bills').select('*')).catch(() => {});
+  fetchAll(() => supabase.from('visits').select('customer_id,visit_date')).catch(() => {});
 }
 
 export function downloadCSV(filename, header, rows) {
@@ -83,9 +152,11 @@ export function downloadCSV(filename, header, rows) {
 }
 
 // Customer list cache shared by pages and pickers
-let customerCache = null;
 export const invalidateCustomers = () => { customerCache = null; };
+let customerT = 0;
 export async function loadCustomers() {
+  if (customerCache && Date.now() - customerT > CACHE_MS) customerCache = null;
+  if (!customerCache) customerT = Date.now();
   if (!customerCache) customerCache = fetchAll(() => supabase.from('customers').select('*').order('name'));
   try {
     return await customerCache;

@@ -73,7 +73,7 @@ export default function Dashboard({ user, openCustomer, go }) {
     (async () => {
       try {
         const [bills, visits, fups, cmap, products] = await Promise.all([
-          fetchAll(() => supabase.from('bills').select('customer_id,bill_date,amount,items')),
+          fetchAll(() => supabase.from('bills').select('*')),
           fetchAll(() => supabase.from('visits').select('customer_id,visit_date')),
           fetchAll(() => supabase.from('followups').select('*').or('status.is.null,status.neq.done').lte('due_date', today()).order('due_date')),
           customerMap(),

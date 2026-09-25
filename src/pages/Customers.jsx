@@ -17,7 +17,7 @@ export default function Customers({ user, openCustomer }) {
   const [sort, setSort] = useState('name');
 
   useEffect(() => {
-    invalidateCustomers();
+    if (tick) invalidateCustomers();
     loadCustomers().then(setList).catch(setErr);
     Promise.all([
       fetchAll(() => supabase.from('bills').select('*')),

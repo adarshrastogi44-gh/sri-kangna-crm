@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -602,78 +602,60 @@ function BillSaved({ bill, onDone }) {
 }
 
 const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const num = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const shortDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 
-export function PrintBill({ bill, onClose }) {
-  const receiptRef = useRef(null);
-  const [c, setC] = useState(null);
-  const [shop, setShop] = useState(null);
-  const [balance, setBalance] = useState(null);
-  useEffect(() => {
-    customerPoints(bill.customer_id).then(setBalance).catch(() => {});
-    supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
-    loadSettings().then(setShop);
-  }, [bill.customer_id]);
-  useEffect(() => {
-    const old = document.title;
-    document.title = `Estimate ${billNo(bill)}`;
-    return () => { document.title = old; };
-  }, [bill]);
+function Receipt({ bill, c, shop, innerRef, small }) {
   const { lines, ok } = parseItems(bill.items);
   const items = lines.filter((l) => l.name !== 'Discount');
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
-
-  return createPortal(
-    <div className="print-root">
-      <div className="print-toolbar no-print">
-        <ShareBill bill={bill} customer={c} receiptRef={receiptRef} />
-        <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
-        <button className="btn" onClick={onClose}>Close</button>
-      </div>
-      <div className="receipt" ref={receiptRef}>
-        <div className="r-top">
-          <div className="r-brand">
-            <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-            <div>
-              <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
-              {shop?.address && <div className="r-addr">{shop.address}</div>}
-              {shop?.phone && <div className="r-addr">Phone: {shop.phone}</div>}
-            </div>
-          </div>
-          <div className="r-doc">
-            <div className="r-title">Estimate</div>
-            <div className="r-no">{billNo(bill)}</div>
-          </div>
-        </div>
-        <div className="r-meta">
+  return (
+    <div className={`receipt${small ? ' small' : ''}`} ref={innerRef}>
+      <div className="r-top">
+        <div className="r-brand">
+          <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
           <div>
-            <div className="r-label">BILLED TO</div>
-            <div className="r-name">{c?.name || ''}</div>
-            {c?.phone && <div className="r-sub">{c.phone}</div>}
-          </div>
-          <div className="r-right">
-            <div className="r-label">DATE</div>
-            <div className="r-date">{longDate(bill.bill_date)}</div>
+            <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+            {shop?.address && <div className="r-addr">{shop.address}</div>}
+            {shop?.phone && <div className="r-addr">Phone: {shop.phone}</div>}
           </div>
         </div>
-        <table className="r-table">
-          <thead><tr><th>ITEM</th><th className="num">QTY</th><th className="num">RATE</th><th className="num">AMOUNT</th></tr></thead>
-          <tbody>
-            {ok && items.length ? items.map((l, i) => (
-              <tr key={i}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{rs(l.rate)}</td><td className="num">{rs(l.qty * l.rate)}</td></tr>
-            )) : (
-              <tr><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{rs(bill.amount)}</td><td className="num">{rs(bill.amount)}</td></tr>
-            )}
-          </tbody>
-        </table>
-        <div className="r-totals">
-          {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
-          {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
-          {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
-          <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
-          {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
+        <div className="r-doc">
+          <div className="r-title">Estimate</div>
+          <div className="r-no">{billNo(bill)}</div>
         </div>
-        {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
+      </div>
+      <div className="r-meta">
+        <div>
+          <div className="r-label">BILLED TO</div>
+          <div className="r-name">{c?.name || ''}</div>
+          {c?.phone && <div className="r-sub">{c.phone}</div>}
+        </div>
+        <div className="r-right">
+          <div className="r-label">DATE</div>
+          <div className="r-date">{small ? shortDate(bill.bill_date) : longDate(bill.bill_date)}</div>
+        </div>
+      </div>
+      <table className="r-table">
+        <thead><tr><th>ITEM</th><th className="num">QTY</th><th className="num">RATE</th><th className="num">{small ? 'AMT' : 'AMOUNT'}</th></tr></thead>
+        <tbody>
+          {ok && items.length ? items.map((l, i) => (
+            <tr key={i}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{small ? num(l.rate) : rs(l.rate)}</td><td className="num">{small ? num(l.qty * l.rate) : rs(l.qty * l.rate)}</td></tr>
+          )) : (
+            <tr><td>{bill.items || 'Purchase'}</td><td className="num">1</td><td className="num">{small ? num(bill.amount) : rs(bill.amount)}</td><td className="num">{small ? num(bill.amount) : rs(bill.amount)}</td></tr>
+          )}
+        </tbody>
+      </table>
+      <div className="r-totals">
+        {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
+        {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
+        {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
+        <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
+        {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
+      </div>
+      {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
+      <div className="r-end">
         {termsLines(shop?.terms).length > 0 && (
           <div className="r-terms">
             <div className="r-terms-title">Terms &amp; Conditions</div>
@@ -682,6 +664,149 @@ export function PrintBill({ bill, onClose }) {
         )}
         {shop?.bill_footer && <div className="r-foot">{shop.bill_footer}</div>}
       </div>
+    </div>
+  );
+}
+
+// 80 mm thermal roll receipt (72 mm printable), black & white.
+function ThermalReceipt({ bill, c, shop }) {
+  const { lines, ok } = parseItems(bill.items);
+  const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+  const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
+  const red = redeemedOf(bill);
+  return (
+    <div className="thermal">
+      <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
+      <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+      {shop?.address && <div className="t-c">{shop.address}</div>}
+      {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
+      <div className="t-title">ESTIMATE</div>
+      <div className="t-row"><span>No: {billNo(bill)}</span><span>{shortDate(bill.bill_date)}</span></div>
+      <div className="t-row"><span>Name: <b>{c?.name || ''}</b></span></div>
+      {c?.phone && <div className="t-row"><span>Mob: {c.phone}</span></div>}
+      <div className="t-hr" />
+      <div className="t-head"><span>Item</span><span>Qty × Rate</span><span>Amt</span></div>
+      <div className="t-hr" />
+      {items.length ? items.map((l, i) => (
+        <div className="t-item" key={i}>
+          <div className="t-name">{l.name}</div>
+          <div className="t-line"><span /><span>{l.qty} × {num(l.rate)}</span><span>{num(l.qty * l.rate)}</span></div>
+        </div>
+      )) : (
+        <div className="t-item"><div className="t-name">{bill.items || 'Purchase'}</div><div className="t-line"><span /><span>1 × {num(bill.amount)}</span><span>{num(bill.amount)}</span></div></div>
+      )}
+      <div className="t-hr" />
+      {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
+      {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
+      {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
+      <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
+      {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
+      <div className="t-hr" />
+      {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
+      {termsLines(shop?.terms).length > 0 && (
+        <div className="t-terms"><b>Terms &amp; Conditions</b><ol>{termsLines(shop.terms).map((t, i) => <li key={i}>{t}</li>)}</ol></div>
+      )}
+      <div className="t-c t-foot">{shop?.bill_footer || 'Thank you! Visit again.'}</div>
+    </div>
+  );
+}
+
+// 4 bills (3.5 × 5 in each) on one A4 sheet. `slots` = array of bills or null (empty spot).
+function Sheets4({ slots, cmap, shop }) {
+  const pages = [];
+  for (let i = 0; i < slots.length; i += 4) pages.push(slots.slice(i, i + 4));
+  return pages.map((pg, pi) => (
+    <div className="sheet4" key={pi}>
+      {[0, 1, 2, 3].map((k) => (
+        <div className="q4" key={k}>{pg[k] && <Receipt bill={pg[k]} c={cmap[pg[k].customer_id]} shop={shop} small />}</div>
+      ))}
+    </div>
+  ));
+}
+
+const PAGE_A4 = <style>{'@page { size: A4 portrait; margin: 0; }'}</style>;
+const PAGE_SLIP = <style>{'@page { size: 3.5in 5in; margin: 0; }'}</style>;
+const PAGE_THERMAL = <style>{'@page { margin: 0; }'}</style>;
+const getPrintSize = () => { try { const v = localStorage.getItem('sk-print-size3'); return ['full', 'quarter', 'slip', 'thermal'].includes(v) ? v : 'thermal'; } catch { return 'thermal'; } };
+
+export function PrintBill({ bill, onClose }) {
+  const receiptRef = useRef(null);
+  const [c, setC] = useState(null);
+  const [shop, setShop] = useState(null);
+  const [size, setSizeState] = useState(getPrintSize);
+  const [pos, setPos] = useState(0);
+  const setSize = (s) => { setSizeState(s); try { localStorage.setItem('sk-print-size3', s); } catch { /* ignore */ } };
+  useEffect(() => {
+    supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+    loadSettings().then(setShop);
+  }, [bill.customer_id]);
+  useEffect(() => {
+    const old = document.title;
+    document.title = `Estimate ${billNo(bill)}`;
+    return () => { document.title = old; };
+  }, [bill]);
+  const slots = [null, null, null, null];
+  slots[pos] = bill;
+
+  return createPortal(
+    <div className="print-root">
+      {size === 'quarter' && PAGE_A4}
+      {size === 'slip' && PAGE_SLIP}
+      {size === 'thermal' && PAGE_THERMAL}
+      <div className="print-toolbar no-print">
+        <div className="tabs">
+          <button className={size === 'thermal' ? 'active' : ''} onClick={() => setSize('thermal')}>Thermal 80 mm</button>
+          <button className={size === 'full' ? 'active' : ''} onClick={() => setSize('full')}>Full A4</button>
+          <button className={size === 'quarter' ? 'active' : ''} onClick={() => setSize('quarter')}>4 per A4</button>
+          <button className={size === 'slip' ? 'active' : ''} onClick={() => setSize('slip')}>3.5 × 5 in paper</button>
+        </div>
+        {size === 'quarter' && (
+          <div className="pos-pick" title="Where on the A4 sheet this bill prints">
+            <span className="muted small">Spot</span>
+            {[0, 1, 2, 3].map((p) => <button key={p} className={pos === p ? 'on' : ''} onClick={() => setPos(p)}>{p + 1}</button>)}
+          </div>
+        )}
+        <span className="spacer" />
+        <ShareBill bill={bill} customer={c} receiptRef={size === 'full' ? receiptRef : null} />
+        <button className="btn primary" onClick={() => window.print()} disabled={!shop}>Print / Save as PDF</button>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+      {size === 'thermal' && <p className="print-hint no-print">Helett BillQuick Lite 80 mm: Destination = Helett printer · Paper size = 80 mm (e.g. “80 × 3276 mm” / “80(72) × 297 mm”) · Margins None · Scale 100 · Headers and footers off.</p>}
+      {size === 'slip' && <p className="print-hint no-print">Print settings: Paper size Custom 3.5 × 5 in (89 × 127 mm) · Margins None · Scale 100%.</p>}
+      {size === 'quarter' && <p className="print-hint no-print">This bill prints in spot {pos + 1}. To use the same sheet for the next bill, put it back in the printer the same way up and choose the next spot. To print 4 different bills at once, tick them on the Bills page and click “Print 4 per A4”.</p>}
+      {size === 'full' && <Receipt bill={bill} c={c} shop={shop} innerRef={receiptRef} />}
+      {size === 'quarter' && <Sheets4 slots={slots} cmap={{ [bill.customer_id]: c }} shop={shop} />}
+      {size === 'thermal' && <ThermalReceipt bill={bill} c={c} shop={shop} />}
+      {size === 'slip' && <div className="slip"><Receipt bill={bill} c={c} shop={shop} small /></div>}
+    </div>,
+    document.body
+  );
+}
+
+export function PrintSheet({ bills, onClose }) {
+  const [cmap, setCmap] = useState(null);
+  const [shop, setShop] = useState(null);
+  useEffect(() => {
+    customerMap().then(setCmap).catch(() => setCmap({}));
+    loadSettings().then(setShop);
+  }, []);
+  useEffect(() => {
+    const old = document.title;
+    document.title = `Estimates (${bills.length})`;
+    return () => { document.title = old; };
+  }, [bills]);
+  const ready = cmap && shop;
+  return createPortal(
+    <div className="print-root">
+      {PAGE_A4}
+      <div className="print-toolbar no-print">
+        <span className="muted">{bills.length} bill{bills.length === 1 ? '' : 's'} · {Math.ceil(bills.length / 4)} A4 sheet{bills.length > 4 ? 's' : ''}</span>
+        <span className="spacer" />
+        <button className="btn primary" onClick={() => window.print()} disabled={!ready}>Print / Save as PDF</button>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+      <p className="print-hint no-print">Print settings: Paper A4 · Portrait · Margins None · Scale 100%. Cut along the dashed lines.</p>
+      {ready ? <Sheets4 slots={bills} cmap={cmap} shop={shop} /> : <Loading />}
     </div>,
     document.body
   );

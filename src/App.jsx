@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { warmUp } from './utils';
 import { supabase, configOk } from './supabase';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -41,6 +42,7 @@ export default function App() {
   useEffect(() => {
     const u = session?.user;
     if (!u) return;
+    warmUp();
     (async () => {
       const { data } = await supabase.from('profiles').select('id').eq('id', u.id).maybeSingle();
       if (!data) await supabase.from('profiles').insert({ id: u.id, full_name: u.email });
