@@ -469,3 +469,10 @@ td.pick input, th.pick input { width: auto; }
 }
 
 .shift-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- Staff ---------- */
+.staff-actions { white-space: nowrap; }
+.staff-actions > * + * { margin-left: 10px !important; }
+.staff-date { width: 150px; }
+.break-end { display: flex; gap: 8px; align-items: center; }
+tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var(--line); }

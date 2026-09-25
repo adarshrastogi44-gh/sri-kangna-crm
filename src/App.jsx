@@ -12,6 +12,7 @@ import Reports from './pages/Reports';
 import Items from './pages/Items';
 import Settings from './pages/Settings';
 import Campaigns from './pages/Campaigns';
+import Staff from './pages/Staff';
 
 const PAGES = [
   ['dashboard', 'Dashboard'],
@@ -20,6 +21,7 @@ const PAGES = [
   ['bills', 'Bills'],
   ['followups', 'Follow-ups'],
   ['campaigns', 'Campaigns'],
+  ['staff', 'Staff'],
   ['reports', 'Reports'],
   ['items', 'Items'],
   ['settings', 'Settings'],
@@ -88,6 +90,7 @@ export default function App() {
         {page === 'items' && <Items {...props} />}
         {page === 'settings' && <Settings {...props} />}
         {page === 'campaigns' && <Campaigns {...props} />}
+        {page === 'staff' && <Staff {...props} />}
       </main>
     </div>
   );
