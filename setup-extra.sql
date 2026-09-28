@@ -45,3 +45,6 @@ alter table public.bills add constraint bills_points_redeemed_check check (point
 -- 5) Allow follow-up status 'pending' / 'done'
 alter table public.followups drop constraint if exists followups_status_check;
 update public.followups set status = 'pending' where status is null or status not in ('pending','done');
+
+-- 9) Allow part-paid and unpaid bills (removes an old rule that only allowed "paid")
+alter table public.bills drop constraint if exists bills_payment_status_check;

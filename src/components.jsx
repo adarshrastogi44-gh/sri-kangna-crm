@@ -439,12 +439,28 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       if (redeemOk) row.points_redeemed = used;
       if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
+      // Some databases only allow certain payment_status words; if ours is refused, try the other common words
+      const save = async (r) => {
+        const tries = [r.payment_status, ...(r.payment_status === 'paid' ? [] : r.payment_status === 'partial' ? ['partially_paid', 'pending', 'due'] : ['pending', 'due', 'partial']), null];
+        let last;
+        for (const st of [...new Set(tries)]) {
+          const data = { ...r };
+          if (st === null) delete data.payment_status; else data.payment_status = st;
+          const res = bill
+            ? await supabase.from('bills').update(data).eq('id', bill.id).select().single()
+            : await supabase.from('bills').insert({ ...data, created_by: user.id }).select().single();
+          if (!res.error) return res.data;
+          last = res.error;
+          if (!/payment_status/i.test(res.error.message || '')) break;
+        }
+        throw last;
+      };
       if (bill) {
-        result = must(await supabase.from('bills').update(row).eq('id', bill.id).select().single());
+        result = await save(row);
         onSaved(result);
         return;
       }
-      result = must(await supabase.from('bills').insert({ ...row, created_by: user.id }).select().single());
+      result = await save(row);
       let visitNote = '';
       if (logVisit) {
         // The bill is already saved; a problem with the visit must not block it (avoids duplicate bills)
