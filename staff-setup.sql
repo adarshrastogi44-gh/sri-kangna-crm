@@ -67,3 +67,6 @@ begin
     execute format('create policy "Signed-in users manage %s" on public.%I for all to authenticated using (true) with check (true)', t, t);
   end loop;
 end $$;
+
+-- Home staff / Shop staff
+alter table public.staff add column if not exists place text not null default 'shop';

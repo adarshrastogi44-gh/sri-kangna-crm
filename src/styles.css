@@ -577,3 +577,16 @@ tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var
 }
 
 .with-sidebar .hero-logo { display: none; }
+
+/* Staff: Shop / Home switch */
+.place-switch { display: inline-flex; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 4px; gap: 4px; box-shadow: 0 4px 14px rgba(60, 20, 40, .06); }
+.place-switch button { border: 0; background: none; padding: 10px 18px; border-radius: 10px; font: inherit; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.place-switch button span { background: #f1e7eb; color: #6f5c63; font-size: 12px; padding: 1px 8px; border-radius: 999px; }
+.place-switch button.on { background: linear-gradient(135deg, #ef4b6e, #c72650); color: #fff; box-shadow: 0 6px 14px rgba(199, 38, 80, .25); }
+.place-switch button.on span { background: rgba(255, 255, 255, .25); color: #fff; }
+.place-switch button:not(.on):hover { background: var(--brand-soft); color: var(--brand); }
+.staff-toolbar { margin-bottom: 14px; }
+.place-pick { display: flex; gap: 8px; }
+.place-pick button { flex: 1; border: 1px solid var(--line); background: #fff; padding: 10px; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; color: var(--muted); }
+.place-pick button.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.warn-notice { background: var(--amber-bg) !important; color: var(--amber) !important; }

@@ -73,6 +73,8 @@ export default function Staff() {
   const [modal, setModal] = useState(null);
   const [open, setOpen] = useState(null);
   const [, setClock] = useState(0);
+  const [place, setPlaceState] = useState(() => { try { return localStorage.getItem('sk-staff-place') || 'shop'; } catch { return 'shop'; } });
+  const setPlace = (p) => { setPlaceState(p); try { localStorage.setItem('sk-staff-place', p); } catch { /* ignore */ } };
 
   const loadKey = tab === 'today' ? day.slice(0, 7) : month;
   useEffect(() => {
@@ -99,12 +101,23 @@ export default function Staff() {
     return <StaffDetail staffId={open} onBack={() => { setOpen(null); refresh(); }} />;
   }
 
-  const active = d ? d.staff.filter((s) => s.active) : [];
+  const hasPlace = d ? d.staff.some((s) => 'place' in s) || d.staff.length === 0 : true;
+  const inPlace = (s) => (s.place || 'shop') === place;
+  const view = d ? { ...d, staff: d.staff.filter(inPlace) } : null;
+  const active = view ? view.staff.filter((s) => s.active) : [];
+  const count = (p) => (d ? d.staff.filter((s) => s.active && (s.place || 'shop') === p).length : 0);
 
   return (
     <>
       <div className="page-head">
         <h1>Staff</h1>
+        <div className="place-switch">
+          <button className={place === 'shop' ? 'on' : ''} onClick={() => setPlace('shop')}>🏬 Shop staff <span>{count('shop')}</span></button>
+          <button className={place === 'home' ? 'on' : ''} onClick={() => setPlace('home')}>🏠 Home staff <span>{count('home')}</span></button>
+        </div>
+      </div>
+      {d && !hasPlace && <div className="notice warn-notice">To keep Home staff separate, run <code>staff-place.sql</code> once in Supabase → SQL Editor. Until then everyone shows under Shop staff.</div>}
+      <div className="toolbar staff-toolbar">
         <div className="actions">
           <div className="tabs">
             <button className={tab === 'today' ? 'active' : ''} onClick={() => setTab('today')}>Attendance</button>
@@ -113,16 +126,16 @@ export default function Staff() {
           </div>
           {tab === 'today' && <div className="staff-date"><DateInput value={day} onChange={(v) => v && setDay(v)} /></div>}
           {tab === 'salary' && <MonthPicker value={month} onChange={setMonth} />}
-          <button className="btn primary" onClick={() => setModal({ staff: {} })}>+ Add staff</button>
         </div>
+        <button className="btn primary" onClick={() => setModal({ staff: { place } })}>+ Add {place === 'home' ? 'home' : 'shop'} staff</button>
       </div>
 
       {!d ? <Loading /> : (
         <>
           {tab === 'today' && (
             <section className="card flush">
-              <h2 className="pad">{day === today() ? 'Today' : fmtDate(day)} · {dayName(day)}</h2>
-              {active.length === 0 ? <Empty>No staff yet. Click “+ Add staff”.</Empty> : (
+              <h2 className="pad">{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'} · {day === today() ? 'Today' : fmtDate(day)} · {dayName(day)}</h2>
+              {active.length === 0 ? <Empty>No {place === 'home' ? 'home' : 'shop'} staff yet. Click “+ Add {place === 'home' ? 'home' : 'shop'} staff”.</Empty> : (
                 <table>
                   <thead><tr><th>Staff</th><th>Status</th><th>Time in</th><th>Breaks</th><th>Time out</th><th className="num">Worked</th><th></th></tr></thead>
                   <tbody>
@@ -172,15 +185,15 @@ export default function Staff() {
             </section>
           )}
 
-          {tab === 'salary' && <SalaryTable d={d} month={month} onOpen={setOpen} setModal={setModal} />}
+          {tab === 'salary' && <SalaryTable d={view} month={month} onOpen={setOpen} setModal={setModal} place={place} />}
 
           {tab === 'list' && (
             <section className="card flush">
-              {d.staff.length === 0 ? <Empty>No staff yet.</Empty> : (
+              {view.staff.length === 0 ? <Empty>No {place === 'home' ? 'home' : 'shop'} staff yet.</Empty> : (
                 <table>
                   <thead><tr><th>Name</th><th>Phone</th><th>Role</th><th className="num">Monthly salary</th><th>Joined</th><th>Status</th><th></th></tr></thead>
                   <tbody>
-                    {d.staff.map((s) => (
+                    {view.staff.map((s) => (
                       <tr key={s.id}>
                         <td><button className="link strong" onClick={() => setOpen(s.id)}>{s.name}</button></td>
                         <td>{s.phone || '—'}</td>
@@ -204,13 +217,13 @@ export default function Staff() {
   );
 }
 
-function SalaryTable({ d, month, onOpen, setModal }) {
+function SalaryTable({ d, month, onOpen, setModal, place }) {
   const rows = d.staff.filter((s) => s.active || byStaff(d.advances, s.id).length || byStaff(d.payments, s.id).length)
     .map((s) => ({ s, x: salaryFor(s, byStaff(d.atts, s.id), byStaff(d.advances, s.id), byStaff(d.payments, s.id)) }));
   const tot = (k) => rows.reduce((t, r) => t + r.x[k], 0);
   return (
     <>
-      <p className="muted small">Salary for {monthLabel(month)}. Per-day rate = monthly salary ÷ 30. <b>Absent</b> cuts 1 day, <b>Half day</b> cuts ½ day. Present, paid leave and unmarked days are paid. Advances given this month are deducted.</p>
+      <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Per-day rate = monthly salary ÷ 30. <b>Absent</b> cuts 1 day, <b>Half day</b> cuts ½ day. Present, paid leave and unmarked days are paid. Advances given this month are deducted.</p>
       <section className="card flush">
         {rows.length === 0 ? <Empty>No staff yet.</Empty> : (
           <table>
@@ -237,13 +250,13 @@ function SalaryTable({ d, month, onOpen, setModal }) {
           </table>
         )}
       </section>
-      {d.advances.length > 0 && (
+      {d.advances.filter((a) => d.staff.some((s) => s.id === a.staff_id)).length > 0 && (
         <section className="card flush">
           <h2 className="pad">Advances given in {monthLabel(month)}</h2>
           <table>
             <thead><tr><th>Date &amp; time</th><th>Staff</th><th className="num">Amount</th><th>Note</th></tr></thead>
             <tbody>
-              {[...d.advances].reverse().map((a) => (
+              {[...d.advances].filter((a) => d.staff.some((s) => s.id === a.staff_id)).reverse().map((a) => (
                 <tr key={a.id}><td>{dtm(a.given_at)}</td><td>{d.staff.find((s) => s.id === a.staff_id)?.name || '—'}</td><td className="num">{inr(a.amount)}</td><td>{a.note || '—'}</td></tr>
               ))}
             </tbody>
@@ -297,7 +310,7 @@ function StaffDetail({ staffId, onBack }) {
     <>
       <button className="btn ghost small" onClick={onBack}>← Back</button>
       <div className="page-head">
-        <h1>{s.name} {!s.active && <Badge>Left</Badge>}</h1>
+        <h1>{s.name} <Badge tone={(s.place || 'shop') === 'home' ? 'blue' : 'gray'}>{(s.place || 'shop') === 'home' ? '🏠 Home' : '🏬 Shop'}</Badge> {!s.active && <Badge>Left</Badge>}</h1>
         <div className="actions">
           <MonthPicker value={month} onChange={setMonth} />
           <button className="btn" onClick={() => setModal({ staff: s })}>Edit</button>
@@ -392,7 +405,7 @@ function Buttons({ busy, onCancel, label }) {
 }
 
 function StaffForm({ s, onSaved, onCancel }) {
-  const [f, setF] = useState({ name: s.name || '', phone: s.phone || '', role: s.role || '', monthly_salary: s.monthly_salary ?? '', join_date: s.join_date || today(), active: s.active ?? true, notes: s.notes || '' });
+  const [f, setF] = useState({ place: s.place || 'shop', name: s.name || '', phone: s.phone || '', role: s.role || '', monthly_salary: s.monthly_salary ?? '', join_date: s.join_date || today(), active: s.active ?? true, notes: s.notes || '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -400,17 +413,27 @@ function StaffForm({ s, onSaved, onCancel }) {
     e.preventDefault(); e.stopPropagation();
     setBusy(true); setErr(null);
     const row = { ...f, name: f.name.trim(), monthly_salary: Number(f.monthly_salary || 0), join_date: f.join_date || null };
-    const { error } = s.id ? await supabase.from('staff').update(row).eq('id', s.id) : await supabase.from('staff').insert(row);
+    const write = (r) => (s.id ? supabase.from('staff').update(r).eq('id', s.id) : supabase.from('staff').insert(r));
+    let { error } = await write(row);
+    if (error && /place/.test(error.message || '')) {
+      // "place" column not added yet in Supabase: save without it
+      const { place: _p, ...rest } = row;
+      ({ error } = await write(rest));
+    }
     setBusy(false);
     if (error) setErr(error); else onSaved();
   };
   return (
     <form className="form" onSubmit={submit}>
       <ErrorBox error={err} />
+      <div className="place-pick">
+        <button type="button" className={f.place === 'shop' ? 'on' : ''} onClick={() => setF({ ...f, place: 'shop' })}>🏬 Shop staff</button>
+        <button type="button" className={f.place === 'home' ? 'on' : ''} onClick={() => setF({ ...f, place: 'home' })}>🏠 Home staff</button>
+      </div>
       <label>Name<input value={f.name} onChange={set('name')} required autoFocus /></label>
       <div className="grid2">
         <label>Phone<input value={f.phone} onChange={set('phone')} inputMode="numeric" /></label>
-        <label>Role<input value={f.role} onChange={set('role')} placeholder="e.g. Sales girl, Helper" /></label>
+        <label>Role<input value={f.role} onChange={set('role')} placeholder={f.place === 'home' ? 'e.g. Cook, Maid, Driver' : 'e.g. Sales girl, Helper'} /></label>
       </div>
       <div className="grid2">
         <label>Monthly salary (₹)<input type="number" min="0" value={f.monthly_salary} onChange={set('monthly_salary')} required /></label>
