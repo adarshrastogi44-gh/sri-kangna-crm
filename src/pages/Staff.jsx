@@ -35,32 +35,43 @@ function workedMins(att, breaks) {
 }
 
 // Salary rule: per-day rate = monthly salary ÷ 30. Absent = 1 day cut, Half day = ½ day cut.
-// Present, paid leave and days not marked are paid in full. Advances and payments are subtracted.
-export function salaryFor(s, atts, advances, payments) {
+// Present, paid leave and days not marked are paid in full.
+// Advances are kept as ONE running balance (all months). They are reduced only when:
+//   • the staff returns money (↩ Return), or
+//   • you pay less salary — the shortfall is cut from the advance balance (saved as adv_cut on the payment).
+export function salaryFor(s, atts, monthAdv, monthPays, allAdv = monthAdv, allPays = monthPays) {
   const perDay = Number(s.monthly_salary || 0) / 30;
   const count = (st) => atts.filter((a) => a.status === st).length;
   const absent = count('absent');
   const half = count('half');
   const deduction = Math.round(perDay * absent + perDay * 0.5 * half);
   const earned = Math.max(0, Math.round(Number(s.monthly_salary || 0) - deduction));
-  const rewards = advances.filter((a) => a.kind === 'reward').reduce((t, a) => t + Number(a.amount || 0), 0); // gifts: never cut from salary
-  const given = advances.filter((a) => a.kind !== 'return' && a.kind !== 'reward').reduce((t, a) => t + Number(a.amount || 0), 0);
-  const returned = advances.filter((a) => a.kind === 'return').reduce((t, a) => t + Number(a.amount || 0), 0);
-  const adv = given - returned; // advances still to be cut from salary
-  const paid = payments.reduce((t, p) => t + Number(p.amount || 0), 0);
-  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, adv, paid, balance: Math.round(earned - adv - paid) };
+  const sum = (list, f = () => true, k = 'amount') => list.filter(f).reduce((t, a) => t + Number(a[k] || 0), 0);
+  const isAdv = (a) => a.kind !== 'return' && a.kind !== 'reward';
+  const rewards = sum(monthAdv, (a) => a.kind === 'reward');
+  const given = sum(monthAdv, isAdv);
+  const returned = sum(monthAdv, (a) => a.kind === 'return');
+  const advBalance = Math.round(sum(allAdv, isAdv) - sum(allAdv, (a) => a.kind === 'return') - sum(allPays, () => true, 'adv_cut'));
+  const paid = sum(monthPays);
+  const cut = sum(monthPays, () => true, 'adv_cut');
+  const left = Math.max(0, Math.round(earned - paid - cut));
+  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, advBalance, paid, cut, left, balance: left };
 }
 
 async function loadMonth(month) {
   const [ms, me] = monthRange(month);
-  const [staff, atts, breaks, advances, payments] = await Promise.all([
+  const [staff, atts, breaks, allAdv, allPays] = await Promise.all([
     fetchAll(() => supabase.from('staff').select('*').order('name')),
     fetchAll(() => supabase.from('staff_attendance').select('*').gte('work_date', ms).lt('work_date', me)),
     fetchAll(() => supabase.from('staff_breaks').select('*').gte('work_date', ms).lt('work_date', me).order('break_start')),
-    fetchAll(() => supabase.from('staff_advances').select('*').gte('given_at', monthStartTs(month)).lt('given_at', monthEndTs(month)).order('given_at')),
-    fetchAll(() => supabase.from('staff_payments').select('*').eq('month', month).order('paid_at')),
+    fetchAll(() => supabase.from('staff_advances').select('*').order('given_at')),
+    fetchAll(() => supabase.from('staff_payments').select('*').order('paid_at')),
   ]);
-  return { staff, atts, breaks, advances, payments };
+  const a0 = monthStartTs(month), a1 = monthEndTs(month);
+  const inMonth = (ts) => { const t = new Date(ts).getTime(); return t >= new Date(a0).getTime() && t < new Date(a1).getTime(); };
+  const advances = allAdv.filter((a) => inMonth(a.given_at));
+  const payments = allPays.filter((p) => p.month === month);
+  return { staff, atts, breaks, advances, payments, allAdv, allPays };
 }
 
 const byStaff = (list, id) => list.filter((x) => x.staff_id === id);
@@ -75,8 +86,10 @@ const ymKey = (ts) => { const x = new Date(ts); return `${x.getFullYear()}-${pad
 // Every month's advances (given, returned, still due) — for all staff in the list, or one person
 function MonthlyAdvances({ staffList, staffId, current, onPick }) {
   const [all, setAll] = useState(null);
+  const [pays, setPays] = useState([]);
   useEffect(() => {
     fetchAll(() => supabase.from('staff_advances').select('*').order('given_at', { ascending: false })).then(setAll).catch(() => setAll([]));
+    fetchAll(() => supabase.from('staff_payments').select('*')).then(setPays).catch(() => setPays([]));
   }, [staffId, current]);
   if (!all) return null;
   const ids = new Set(staffId ? [staffId] : staffList.map((s) => s.id));
@@ -84,31 +97,40 @@ function MonthlyAdvances({ staffList, staffId, current, onPick }) {
   const months = {};
   mine.forEach((a) => {
     const k = ymKey(a.given_at);
-    const m = (months[k] ||= { given: 0, returned: 0, people: {} });
+    const m = (months[k] ||= { given: 0, returned: 0, cut: 0, people: {} });
     const amt = Number(a.amount || 0);
     if (isReturn(a)) m.returned += amt; else m.given += amt;
     const who = staffList.find((s) => s.id === a.staff_id)?.name || '—';
     m.people[who] = (m.people[who] || 0) + (isReturn(a) ? -amt : amt);
   });
+  pays.filter((p) => ids.has(p.staff_id) && Number(p.adv_cut)).forEach((p) => {
+    const m = (months[p.month] ||= { given: 0, returned: 0, cut: 0, people: {} });
+    const amt = Number(p.adv_cut);
+    m.cut += amt;
+    const who = staffList.find((s) => s.id === p.staff_id)?.name || '—';
+    m.people[who] = (m.people[who] || 0) - amt;
+  });
   const rows = Object.entries(months).sort((a, b) => b[0].localeCompare(a[0]));
-  const tot = rows.reduce((t, [, m]) => ({ given: t.given + m.given, returned: t.returned + m.returned }), { given: 0, returned: 0 });
+  const tot = rows.reduce((t, [, m]) => ({ given: t.given + m.given, returned: t.returned + m.returned, cut: t.cut + m.cut }), { given: 0, returned: 0, cut: 0 });
+  const due = tot.given - tot.returned - tot.cut;
   return (
     <section className="card flush">
-      <h2 className="pad">Advances — month by month</h2>
+      <div className="pad adv-head"><h2>Advances — month by month</h2><div className="adv-total">Total advance still due: <b>{inr(due)}</b></div></div>
       {rows.length === 0 ? <Empty>No advances yet.</Empty> : (
         <table>
-          <thead><tr><th>Month</th><th className="num">Given</th><th className="num">Returned</th><th className="num">Net advance</th>{!staffId && <th className="hide-sm">By staff (net)</th>}</tr></thead>
+          <thead><tr><th>Month</th><th className="num">Given</th><th className="num">Returned</th><th className="num">Cut from salary</th><th className="num">Net</th>{!staffId && <th className="hide-sm">By staff (net)</th>}</tr></thead>
           <tbody>
             {rows.map(([k, m]) => (
               <tr key={k} className={`click ${k === current ? 'cur-month' : ''}`} onClick={() => onPick?.(k)}>
                 <td><b>{monthLabel(k)}</b>{k === current && <span className="muted small"> · this month</span>}</td>
                 <td className="num">{inr(m.given)}</td>
                 <td className="num">{m.returned ? `− ${inr(m.returned)}` : '—'}</td>
-                <td className="num"><b>{inr(m.given - m.returned)}</b></td>
+                <td className="num">{m.cut ? `− ${inr(m.cut)}` : '—'}</td>
+                <td className="num"><b>{inr(m.given - m.returned - m.cut)}</b></td>
                 {!staffId && <td className="hide-sm small">{Object.entries(m.people).filter(([, v]) => v).map(([n, v]) => `${n} ${inr(v)}`).join(' · ') || '—'}</td>}
               </tr>
             ))}
-            <tr className="total-row"><td><b>All months</b></td><td className="num">{inr(tot.given)}</td><td className="num">{tot.returned ? `− ${inr(tot.returned)}` : '—'}</td><td className="num"><b>{inr(tot.given - tot.returned)}</b></td>{!staffId && <td className="hide-sm" />}</tr>
+            <tr className="total-row"><td><b>Still due (all months)</b></td><td className="num">{inr(tot.given)}</td><td className="num">{tot.returned ? `− ${inr(tot.returned)}` : '—'}</td><td className="num">{tot.cut ? `− ${inr(tot.cut)}` : '—'}</td><td className="num"><b>{inr(due)}</b></td>{!staffId && <td className="hide-sm" />}</tr>
           </tbody>
         </table>
       )}
@@ -272,36 +294,41 @@ export default function Staff() {
 }
 
 function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
-  const rows = d.staff.filter((s) => s.active || byStaff(d.advances, s.id).length || byStaff(d.payments, s.id).length)
-    .map((s) => ({ s, x: salaryFor(s, byStaff(d.atts, s.id), byStaff(d.advances, s.id), byStaff(d.payments, s.id)) }));
+  const calc = (s) => salaryFor(s, byStaff(d.atts, s.id), byStaff(d.advances, s.id), byStaff(d.payments, s.id), byStaff(d.allAdv, s.id), byStaff(d.allPays, s.id));
+  const rows = d.staff.map((s) => ({ s, x: calc(s) })).filter(({ s, x }) => s.active || x.advBalance || x.paid || x.cut);
   const tot = (k) => rows.reduce((t, r) => t + r.x[k], 0);
   return (
     <>
-      <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Per-day rate = monthly salary ÷ 30. <b>Absent</b> cuts 1 day, <b>Half day</b> cuts ½ day. Present, paid leave and unmarked days are paid. Advances given this month are deducted.</p>
+      <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Day rate = salary ÷ 30 · <b>Absent</b> cuts 1 day, <b>Half day</b> ½ day. <b>Advance balance</b> is the total advance still due from all months. When you pay less salary, the difference is cut from the advance balance.</p>
+      <div className="stats">
+        <div className="stat"><div className="stat-label">Salary earned · {monthLabel(month, true)}</div><div className="stat-value">{inr(tot('earned'))}</div></div>
+        <div className="stat"><div className="stat-label">Salary left to pay</div><div className="stat-value">{inr(tot('left'))}</div><div className="stat-sub">paid {inr(tot('paid'))} · cut from advance {inr(tot('cut'))}</div></div>
+        <div className="stat warn"><div className="stat-label">Total advance balance</div><div className="stat-value">{inr(tot('advBalance'))}</div><div className="stat-sub">still due from staff (all months)</div></div>
+      </div>
       <section className="card flush">
         {rows.length === 0 ? <Empty>No staff yet.</Empty> : (
           <table>
-            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Cut</th><th className="num">Earned</th><th className="num">Advances</th><th className="num">Paid</th><th className="num">Balance to pay</th><th></th></tr></thead>
+            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Earned</th><th className="num">Paid</th><th className="num">Cut from advance</th><th className="num">Salary left</th><th className="num">Advance balance</th><th></th></tr></thead>
             <tbody>
               {rows.map(({ s, x }) => (
                 <tr key={s.id}>
                   <td><button className="link strong" onClick={() => onOpen(s.id)}>{s.name}</button></td>
                   <td className="num">{inr(s.monthly_salary)}</td>
                   <td className="num">{x.absent} / {x.half}</td>
-                  <td className="num">{x.deduction ? `− ${inr(x.deduction)}` : '—'}</td>
-                  <td className="num">{inr(x.earned)}</td>
-                  <td className="num">{x.adv ? `− ${inr(x.adv)}` : '—'}{x.returned > 0 && <div className="muted small">gave {inr(x.given)} · back {inr(x.returned)}</div>}</td>
-                  <td className="num">{x.paid ? `− ${inr(x.paid)}` : '—'}</td>
-                  <td className="num"><b className={x.balance < 0 ? 'danger-text' : ''}>{inr(x.balance)}</b></td>
+                  <td className="num">{inr(x.earned)}{x.deduction > 0 && <div className="muted small">cut {inr(x.deduction)}</div>}</td>
+                  <td className="num">{x.paid ? inr(x.paid) : '—'}</td>
+                  <td className="num">{x.cut ? inr(x.cut) : '—'}</td>
+                  <td className="num"><b>{inr(x.left)}</b></td>
+                  <td className="num"><b className={x.advBalance > 0 ? 'adv-due' : ''}>{inr(x.advBalance)}</b></td>
                   <td className="row-actions sal-actions">
                     <button className="link" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
                     <button className="link" onClick={() => setModal({ ret: { staff: s } })}>↩ Return</button>
                     <button className="link" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
-                    <button className="link" onClick={() => setModal({ pay: { staff: s, amount: Math.max(0, x.balance) } })}>Pay</button>
+                    <button className="link" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>Pay</button>
                   </td>
                 </tr>
               ))}
-              <tr className="total-row"><td><b>Total</b></td><td /><td /><td className="num">{inr(tot('deduction'))}</td><td className="num">{inr(tot('earned'))}</td><td className="num">{inr(tot('adv'))}</td><td className="num">{inr(tot('paid'))}</td><td className="num"><b>{inr(tot('balance'))}</b></td><td /></tr>
+              <tr className="total-row"><td><b>Total</b></td><td /><td /><td className="num">{inr(tot('earned'))}</td><td className="num">{inr(tot('paid'))}</td><td className="num">{inr(tot('cut'))}</td><td className="num"><b>{inr(tot('left'))}</b></td><td className="num"><b>{inr(tot('advBalance'))}</b></td><td /></tr>
             </tbody>
           </table>
         )}
@@ -321,7 +348,7 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
       )}
       <RewardsCard rewards={d.advances.filter((a) => isReward(a) && d.staff.some((s) => s.id === a.staff_id))} staffList={d.staff} month={month} />
       <MonthlyAdvances staffList={d.staff} current={month} onPick={onMonth} />
-      <p className="muted small">A negative balance means more was given than earned this month.</p>
+      
     </>
   );
 }
@@ -363,7 +390,7 @@ function StaffDetail({ staffId, onBack }) {
   const advs = allAdv.filter(notReward);
   const rws = allAdv.filter(isReward);
   const pays = byStaff(d.payments, s.id);
-  const x = salaryFor(s, atts, allAdv, pays);
+  const x = salaryFor(s, atts, allAdv, pays, byStaff(d.allAdv, s.id), byStaff(d.allPays, s.id));
   const totalWorked = atts.reduce((t, a) => t + workedMins(a, brs.filter((b) => b.work_date === a.work_date)), 0);
 
   return (
@@ -377,7 +404,7 @@ function StaffDetail({ staffId, onBack }) {
           <button className="btn" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
           <button className="btn" onClick={() => setModal({ ret: { staff: s } })}>↩ Advance returned</button>
           <button className="btn" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
-          <button className="btn primary" onClick={() => setModal({ pay: { staff: s, amount: Math.max(0, x.balance) } })}>Pay salary</button>
+          <button className="btn primary" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>Pay salary</button>
         </div>
       </div>
       <div className="stats">
@@ -385,9 +412,9 @@ function StaffDetail({ staffId, onBack }) {
         <div className="stat"><div className="stat-label">Attendance · {monthLabel(month, true)}</div><div className="stat-value">{x.present + x.half}</div><div className="stat-sub">present {x.present} · half {x.half} · absent {x.absent} · leave {x.leave}</div></div>
         <div className="stat"><div className="stat-label">Hours worked</div><div className="stat-value">{dur(totalWorked)}</div></div>
         <div className="stat"><div className="stat-label">Earned</div><div className="stat-value">{inr(x.earned)}</div><div className="stat-sub">{x.deduction ? `cut ${inr(x.deduction)} for absence` : 'no cut'}</div></div>
-        <div className="stat warn"><div className="stat-label">Advances (net)</div><div className="stat-value">{inr(x.adv)}</div><div className="stat-sub">given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}</div></div>
+        <div className="stat warn"><div className="stat-label">Advance balance (all months)</div><div className="stat-value">{inr(x.advBalance)}</div><div className="stat-sub">this month: given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}{x.cut ? ` · cut ${inr(x.cut)}` : ''}</div></div>
         <div className="stat reward-stat"><div className="stat-label">🎁 Rewards</div><div className="stat-value">{inr(x.rewards)}</div><div className="stat-sub">gifts · not cut from salary</div></div>
-        <div className={`stat ${x.balance > 0 ? '' : 'warn'}`}><div className="stat-label">Balance to pay</div><div className="stat-value">{inr(x.balance)}</div><div className="stat-sub">already paid {inr(x.paid)}</div></div>
+        <div className="stat"><div className="stat-label">Salary left to pay</div><div className="stat-value">{inr(x.left)}</div><div className="stat-sub">paid {inr(x.paid)}{x.cut ? ` · cut from advance ${inr(x.cut)}` : ''}</div></div>
       </div>
 
       <div className="cols">
@@ -407,9 +434,9 @@ function StaffDetail({ staffId, onBack }) {
           <h2 className="pad">Salary paid</h2>
           {pays.length === 0 ? <Empty>No salary paid for this month yet.</Empty> : (
             <table>
-              <thead><tr><th>Date &amp; time</th><th className="num">Amount</th><th>Note</th><th></th></tr></thead>
+              <thead><tr><th>Date &amp; time</th><th className="num">Paid</th><th className="num">Cut from advance</th><th>Note</th><th></th></tr></thead>
               <tbody>{[...pays].reverse().map((p) => (
-                <tr key={p.id}><td>{dtm(p.paid_at)}</td><td className="num">{inr(p.amount)}</td><td>{p.note || '—'}</td>
+                <tr key={p.id}><td>{dtm(p.paid_at)}</td><td className="num">{inr(p.amount)}</td><td className="num">{Number(p.adv_cut) ? inr(p.adv_cut) : '—'}</td><td>{p.note || '—'}</td>
                   <td className="row-actions"><button className="link danger" onClick={() => del('staff_payments', p.id, 'payment')}>Delete</button></td></tr>
               ))}</tbody>
             </table>
@@ -482,7 +509,7 @@ function StaffModals({ modal, setModal, done, staffList, month }) {
   if (modal.advance) return <Modal title={`Advance · ${modal.advance.staff.name}`} onClose={close}><MoneyForm kind="advance" staff={modal.advance.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.reward) return <Modal title={`🎁 Reward · ${modal.reward.staff.name}`} onClose={close}><MoneyForm kind="reward" staff={modal.reward.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.ret) return <Modal title={`Advance returned · ${modal.ret.staff.name}`} onClose={close}><MoneyForm kind="return" staff={modal.ret.staff} onSaved={done} onCancel={close} /></Modal>;
-  if (modal.pay) return <Modal title={`Pay salary · ${modal.pay.staff.name}`} onClose={close}><MoneyForm kind="pay" staff={modal.pay.staff} month={month} amount={modal.pay.amount} onSaved={done} onCancel={close} /></Modal>;
+  if (modal.pay) return <Modal title={`Pay salary · ${modal.pay.staff.name}`} onClose={close}><PayForm staff={modal.pay.staff} month={month} left={modal.pay.left} advBalance={modal.pay.advBalance} onSaved={done} onCancel={close} /></Modal>;
   if (modal.dayEdit) return <Modal title={`${modal.dayEdit.staff.name} · ${fmtDate(modal.dayEdit.date)}`} onClose={close}><DayForm {...modal.dayEdit} onSaved={done} onCancel={close} /></Modal>;
   return null;
 }
@@ -538,6 +565,47 @@ function StaffForm({ s, onSaved, onCancel }) {
   );
 }
 
+function PayForm({ staff, month, left, advBalance, onSaved, onCancel }) {
+  const maxCut = Math.min(left, Math.max(0, advBalance));
+  const [cash, setCash] = useState(String(left - maxCut));
+  const [cutOn, setCutOn] = useState(maxCut > 0);
+  const [when, setWhen] = useState(localDT());
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const c = Math.max(0, Number(cash || 0));
+  const cut = cutOn ? Math.min(Math.max(0, advBalance), Math.max(0, left - c)) : 0;
+  const submit = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!(c > 0) && !(cut > 0)) { setErr({ message: 'Enter the amount you are paying.' }); return; }
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from('staff_payments').insert({ staff_id: staff.id, month, amount: c, adv_cut: cut, paid_at: new Date(when).toISOString(), note: note.trim() || null });
+    setBusy(false);
+    if (error) setErr(/adv_cut|amount_check/.test(error.message || '') ? { message: 'One-time setup needed: run advance-balance.sql in Supabase → SQL Editor, then try again.' } : error);
+    else onSaved();
+  };
+  return (
+    <form className="form" onSubmit={submit}>
+      <ErrorBox error={err} />
+      <div className="pay-summary">
+        <div><span>Salary left for {monthLabel(month)}</span><b>{inr(left)}</b></div>
+        <div><span>Advance balance (all months)</span><b className="adv-due">{inr(advBalance)}</b></div>
+      </div>
+      <label>Cash / UPI paying now (₹)<input type="number" min="0" value={cash} onChange={(e) => setCash(e.target.value)} autoFocus /></label>
+      {advBalance > 0 && (
+        <label className="check"><input type="checkbox" checked={cutOn} onChange={(e) => setCutOn(e.target.checked)} /> Cut the rest from advance</label>
+      )}
+      <div className="pay-after">
+        <div>Cut from advance: <b>{inr(cut)}</b></div>
+        <div>After this → salary left <b>{inr(Math.max(0, left - c - cut))}</b> · advance balance <b>{inr(Math.max(0, advBalance - cut))}</b></div>
+      </div>
+      <label>Date &amp; time<input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required /></label>
+      <label>Note<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. paid by UPI" /></label>
+      <Buttons busy={busy} onCancel={onCancel} label="Save payment" />
+    </form>
+  );
+}
+
 function MoneyForm({ kind, staff, month, amount, onSaved, onCancel }) {
   const [amt, setAmt] = useState(amount ? String(amount) : '');
   const [when, setWhen] = useState(localDT());
@@ -562,10 +630,10 @@ function MoneyForm({ kind, staff, month, amount, onSaved, onCancel }) {
     <form className="form" onSubmit={submit}>
       <ErrorBox error={err} />
       {kind === 'pay' && <p className="muted small">Salary for <b>{monthLabel(month)}</b>. The amount below is the balance after cuts and advances.</p>}
-      {kind === 'advance' && <p className="muted small">This advance will be deducted from {staff.name}’s salary for the month it is given in.</p>}
+      {kind === 'advance' && <p className="muted small">This is added to {staff.name}’s advance balance. It comes off when they return money or when you pay them less salary.</p>}
       {kind === 'reward' && <p className="muted small">A gift for {staff.name} (tea, help, festival, bonus, good work). It is recorded separately and is <b>not</b> added to advances or cut from salary.</p>}
       {kind === 'reward' && <div className="chips">{FESTIVALS.map((f) => <button type="button" key={f} className={`chip ${note === f ? 'on' : ''}`} onClick={() => setNote(f)}>{f}</button>)}</div>}
-      {kind === 'return' && <p className="muted small">Use this when {staff.name} gives back advance money. It cancels that much advance, so it will <b>not</b> be cut from salary.</p>}
+      {kind === 'return' && <p className="muted small">Use this when {staff.name} gives back advance money. It reduces their advance balance.</p>}
       <label>Amount (₹)<input type="number" min="1" value={amt} onChange={(e) => setAmt(e.target.value)} autoFocus required /></label>
       <label>Date &amp; time<input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required /></label>
       <label>{kind === 'reward' ? 'Occasion / note' : 'Note'}<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={kind === 'advance' ? 'e.g. cash for festival' : kind === 'return' ? 'e.g. returned in cash' : kind === 'reward' ? 'e.g. Diwali gift' : 'e.g. paid by UPI'} /></label>

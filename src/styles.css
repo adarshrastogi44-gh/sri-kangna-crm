@@ -594,5 +594,12 @@ tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var
 tr.cur-month td { background: #fff7e8; }
 .reward-stat { border-color: #cfe9d9 !important; background: linear-gradient(135deg, #f2fbf5, #e6f6ec) !important; }
 .reward-card h2 .small { font-weight: 400; }
-.sal-actions { white-space: normal !important; min-width: 170px; line-height: 1.9; }
+.sal-actions { white-space: normal !important; min-width: 250px; line-height: 1.9; }
 .sal-actions .link { margin-left: 10px; }
+.adv-due { color: #b35c00; }
+.adv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; }
+.adv-head h2 { margin: 0; }
+.adv-total { background: #fff4e0; color: #8a5200; padding: 6px 12px; border-radius: 10px; font-size: 14px; }
+.pay-summary { display: grid; gap: 6px; background: #fffafb; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.pay-summary div { display: flex; justify-content: space-between; }
+.pay-after { background: var(--green-bg); color: var(--green); border-radius: 10px; padding: 8px 12px; font-size: 14px; display: grid; gap: 2px; }
