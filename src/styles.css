@@ -590,3 +590,9 @@ tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var
 .place-pick button { flex: 1; border: 1px solid var(--line); background: #fff; padding: 10px; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; color: var(--muted); }
 .place-pick button.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
 .warn-notice { background: var(--amber-bg) !important; color: var(--amber) !important; }
+.adv-ret { color: var(--green); font-weight: 600; }
+tr.cur-month td { background: #fff7e8; }
+.reward-stat { border-color: #cfe9d9 !important; background: linear-gradient(135deg, #f2fbf5, #e6f6ec) !important; }
+.reward-card h2 .small { font-weight: 400; }
+.sal-actions { white-space: normal !important; min-width: 170px; line-height: 1.9; }
+.sal-actions .link { margin-left: 10px; }

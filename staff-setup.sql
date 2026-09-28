@@ -70,3 +70,6 @@ end $$;
 
 -- Home staff / Shop staff
 alter table public.staff add column if not exists place text not null default 'shop';
+
+-- Advance returned entries
+alter table public.staff_advances add column if not exists kind text not null default 'advance';

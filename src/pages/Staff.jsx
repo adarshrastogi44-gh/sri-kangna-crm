@@ -43,9 +43,12 @@ export function salaryFor(s, atts, advances, payments) {
   const half = count('half');
   const deduction = Math.round(perDay * absent + perDay * 0.5 * half);
   const earned = Math.max(0, Math.round(Number(s.monthly_salary || 0) - deduction));
-  const adv = advances.reduce((t, a) => t + Number(a.amount || 0), 0);
+  const rewards = advances.filter((a) => a.kind === 'reward').reduce((t, a) => t + Number(a.amount || 0), 0); // gifts: never cut from salary
+  const given = advances.filter((a) => a.kind !== 'return' && a.kind !== 'reward').reduce((t, a) => t + Number(a.amount || 0), 0);
+  const returned = advances.filter((a) => a.kind === 'return').reduce((t, a) => t + Number(a.amount || 0), 0);
+  const adv = given - returned; // advances still to be cut from salary
   const paid = payments.reduce((t, p) => t + Number(p.amount || 0), 0);
-  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, adv, paid, balance: Math.round(earned - adv - paid) };
+  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, adv, paid, balance: Math.round(earned - adv - paid) };
 }
 
 async function loadMonth(month) {
@@ -61,6 +64,57 @@ async function loadMonth(month) {
 }
 
 const byStaff = (list, id) => list.filter((x) => x.staff_id === id);
+const isReturn = (a) => a.kind === 'return';
+const isReward = (a) => a.kind === 'reward';
+const notReward = (a) => !isReward(a);
+const FESTIVALS = ['Tea', 'Help', 'Diwali', 'Holi', 'Raksha Bandhan', 'Dussehra', 'Navratri', 'Karva Chauth', 'Chhath', 'Eid', 'New Year', 'Bonus'];
+const AdvAmount = ({ a }) => (isReturn(a) ? <span className="adv-ret">− {inr(a.amount)}</span> : <span>{inr(a.amount)}</span>);
+const AdvType = ({ a }) => (isReturn(a) ? <Badge tone="green">↩ Returned</Badge> : <Badge tone="amber">Advance</Badge>);
+const ymKey = (ts) => { const x = new Date(ts); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}`; };
+
+// Every month's advances (given, returned, still due) — for all staff in the list, or one person
+function MonthlyAdvances({ staffList, staffId, current, onPick }) {
+  const [all, setAll] = useState(null);
+  useEffect(() => {
+    fetchAll(() => supabase.from('staff_advances').select('*').order('given_at', { ascending: false })).then(setAll).catch(() => setAll([]));
+  }, [staffId, current]);
+  if (!all) return null;
+  const ids = new Set(staffId ? [staffId] : staffList.map((s) => s.id));
+  const mine = all.filter((a) => ids.has(a.staff_id) && notReward(a));
+  const months = {};
+  mine.forEach((a) => {
+    const k = ymKey(a.given_at);
+    const m = (months[k] ||= { given: 0, returned: 0, people: {} });
+    const amt = Number(a.amount || 0);
+    if (isReturn(a)) m.returned += amt; else m.given += amt;
+    const who = staffList.find((s) => s.id === a.staff_id)?.name || '—';
+    m.people[who] = (m.people[who] || 0) + (isReturn(a) ? -amt : amt);
+  });
+  const rows = Object.entries(months).sort((a, b) => b[0].localeCompare(a[0]));
+  const tot = rows.reduce((t, [, m]) => ({ given: t.given + m.given, returned: t.returned + m.returned }), { given: 0, returned: 0 });
+  return (
+    <section className="card flush">
+      <h2 className="pad">Advances — month by month</h2>
+      {rows.length === 0 ? <Empty>No advances yet.</Empty> : (
+        <table>
+          <thead><tr><th>Month</th><th className="num">Given</th><th className="num">Returned</th><th className="num">Net advance</th>{!staffId && <th className="hide-sm">By staff (net)</th>}</tr></thead>
+          <tbody>
+            {rows.map(([k, m]) => (
+              <tr key={k} className={`click ${k === current ? 'cur-month' : ''}`} onClick={() => onPick?.(k)}>
+                <td><b>{monthLabel(k)}</b>{k === current && <span className="muted small"> · this month</span>}</td>
+                <td className="num">{inr(m.given)}</td>
+                <td className="num">{m.returned ? `− ${inr(m.returned)}` : '—'}</td>
+                <td className="num"><b>{inr(m.given - m.returned)}</b></td>
+                {!staffId && <td className="hide-sm small">{Object.entries(m.people).filter(([, v]) => v).map(([n, v]) => `${n} ${inr(v)}`).join(' · ') || '—'}</td>}
+              </tr>
+            ))}
+            <tr className="total-row"><td><b>All months</b></td><td className="num">{inr(tot.given)}</td><td className="num">{tot.returned ? `− ${inr(tot.returned)}` : '—'}</td><td className="num"><b>{inr(tot.given - tot.returned)}</b></td>{!staffId && <td className="hide-sm" />}</tr>
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
 const run = async (p) => { const { error } = await p; if (error) throw error; };
 
 export default function Staff() {
@@ -185,7 +239,7 @@ export default function Staff() {
             </section>
           )}
 
-          {tab === 'salary' && <SalaryTable d={view} month={month} onOpen={setOpen} setModal={setModal} place={place} />}
+          {tab === 'salary' && <SalaryTable d={view} month={month} onOpen={setOpen} setModal={setModal} place={place} onMonth={setMonth} />}
 
           {tab === 'list' && (
             <section className="card flush">
@@ -217,7 +271,7 @@ export default function Staff() {
   );
 }
 
-function SalaryTable({ d, month, onOpen, setModal, place }) {
+function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
   const rows = d.staff.filter((s) => s.active || byStaff(d.advances, s.id).length || byStaff(d.payments, s.id).length)
     .map((s) => ({ s, x: salaryFor(s, byStaff(d.atts, s.id), byStaff(d.advances, s.id), byStaff(d.payments, s.id)) }));
   const tot = (k) => rows.reduce((t, r) => t + r.x[k], 0);
@@ -236,12 +290,14 @@ function SalaryTable({ d, month, onOpen, setModal, place }) {
                   <td className="num">{x.absent} / {x.half}</td>
                   <td className="num">{x.deduction ? `− ${inr(x.deduction)}` : '—'}</td>
                   <td className="num">{inr(x.earned)}</td>
-                  <td className="num">{x.adv ? `− ${inr(x.adv)}` : '—'}</td>
+                  <td className="num">{x.adv ? `− ${inr(x.adv)}` : '—'}{x.returned > 0 && <div className="muted small">gave {inr(x.given)} · back {inr(x.returned)}</div>}</td>
                   <td className="num">{x.paid ? `− ${inr(x.paid)}` : '—'}</td>
                   <td className="num"><b className={x.balance < 0 ? 'danger-text' : ''}>{inr(x.balance)}</b></td>
-                  <td className="row-actions">
+                  <td className="row-actions sal-actions">
                     <button className="link" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
-                    <button className="link" onClick={() => setModal({ pay: { staff: s, amount: Math.max(0, x.balance) } })}>Pay salary</button>
+                    <button className="link" onClick={() => setModal({ ret: { staff: s } })}>↩ Return</button>
+                    <button className="link" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
+                    <button className="link" onClick={() => setModal({ pay: { staff: s, amount: Math.max(0, x.balance) } })}>Pay</button>
                   </td>
                 </tr>
               ))}
@@ -250,19 +306,21 @@ function SalaryTable({ d, month, onOpen, setModal, place }) {
           </table>
         )}
       </section>
-      {d.advances.filter((a) => d.staff.some((s) => s.id === a.staff_id)).length > 0 && (
+      {d.advances.filter((a) => notReward(a) && d.staff.some((s) => s.id === a.staff_id)).length > 0 && (
         <section className="card flush">
-          <h2 className="pad">Advances given in {monthLabel(month)}</h2>
+          <h2 className="pad">Advances in {monthLabel(month)}</h2>
           <table>
-            <thead><tr><th>Date &amp; time</th><th>Staff</th><th className="num">Amount</th><th>Note</th></tr></thead>
+            <thead><tr><th>Date &amp; time</th><th>Staff</th><th>Type</th><th className="num">Amount</th><th>Note</th></tr></thead>
             <tbody>
-              {[...d.advances].filter((a) => d.staff.some((s) => s.id === a.staff_id)).reverse().map((a) => (
-                <tr key={a.id}><td>{dtm(a.given_at)}</td><td>{d.staff.find((s) => s.id === a.staff_id)?.name || '—'}</td><td className="num">{inr(a.amount)}</td><td>{a.note || '—'}</td></tr>
+              {[...d.advances].filter((a) => notReward(a) && d.staff.some((s) => s.id === a.staff_id)).reverse().map((a) => (
+                <tr key={a.id}><td>{dtm(a.given_at)}</td><td>{d.staff.find((s) => s.id === a.staff_id)?.name || '—'}</td><td><AdvType a={a} /></td><td className="num"><AdvAmount a={a} /></td><td>{a.note || '—'}</td></tr>
               ))}
             </tbody>
           </table>
         </section>
       )}
+      <RewardsCard rewards={d.advances.filter((a) => isReward(a) && d.staff.some((s) => s.id === a.staff_id))} staffList={d.staff} month={month} />
+      <MonthlyAdvances staffList={d.staff} current={month} onPick={onMonth} />
       <p className="muted small">A negative balance means more was given than earned this month.</p>
     </>
   );
@@ -301,9 +359,11 @@ function StaffDetail({ staffId, onBack }) {
   if (!s) return <><button className="btn ghost small" onClick={onBack}>← Back</button><Empty>Staff not found.</Empty></>;
   const atts = byStaff(d.atts, s.id);
   const brs = byStaff(d.breaks, s.id);
-  const advs = byStaff(d.advances, s.id);
+  const allAdv = byStaff(d.advances, s.id);
+  const advs = allAdv.filter(notReward);
+  const rws = allAdv.filter(isReward);
   const pays = byStaff(d.payments, s.id);
-  const x = salaryFor(s, atts, advs, pays);
+  const x = salaryFor(s, atts, allAdv, pays);
   const totalWorked = atts.reduce((t, a) => t + workedMins(a, brs.filter((b) => b.work_date === a.work_date)), 0);
 
   return (
@@ -315,6 +375,8 @@ function StaffDetail({ staffId, onBack }) {
           <MonthPicker value={month} onChange={setMonth} />
           <button className="btn" onClick={() => setModal({ staff: s })}>Edit</button>
           <button className="btn" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
+          <button className="btn" onClick={() => setModal({ ret: { staff: s } })}>↩ Advance returned</button>
+          <button className="btn" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
           <button className="btn primary" onClick={() => setModal({ pay: { staff: s, amount: Math.max(0, x.balance) } })}>Pay salary</button>
         </div>
       </div>
@@ -323,7 +385,8 @@ function StaffDetail({ staffId, onBack }) {
         <div className="stat"><div className="stat-label">Attendance · {monthLabel(month, true)}</div><div className="stat-value">{x.present + x.half}</div><div className="stat-sub">present {x.present} · half {x.half} · absent {x.absent} · leave {x.leave}</div></div>
         <div className="stat"><div className="stat-label">Hours worked</div><div className="stat-value">{dur(totalWorked)}</div></div>
         <div className="stat"><div className="stat-label">Earned</div><div className="stat-value">{inr(x.earned)}</div><div className="stat-sub">{x.deduction ? `cut ${inr(x.deduction)} for absence` : 'no cut'}</div></div>
-        <div className="stat warn"><div className="stat-label">Advances</div><div className="stat-value">{inr(x.adv)}</div><div className="stat-sub">{advs.length} taken this month</div></div>
+        <div className="stat warn"><div className="stat-label">Advances (net)</div><div className="stat-value">{inr(x.adv)}</div><div className="stat-sub">given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}</div></div>
+        <div className="stat reward-stat"><div className="stat-label">🎁 Rewards</div><div className="stat-value">{inr(x.rewards)}</div><div className="stat-sub">gifts · not cut from salary</div></div>
         <div className={`stat ${x.balance > 0 ? '' : 'warn'}`}><div className="stat-label">Balance to pay</div><div className="stat-value">{inr(x.balance)}</div><div className="stat-sub">already paid {inr(x.paid)}</div></div>
       </div>
 
@@ -332,10 +395,10 @@ function StaffDetail({ staffId, onBack }) {
           <h2 className="pad">Advances</h2>
           {advs.length === 0 ? <Empty>No advances this month.</Empty> : (
             <table>
-              <thead><tr><th>Date &amp; time</th><th className="num">Amount</th><th>Note</th><th></th></tr></thead>
+              <thead><tr><th>Date &amp; time</th><th>Type</th><th className="num">Amount</th><th>Note</th><th></th></tr></thead>
               <tbody>{[...advs].reverse().map((a) => (
-                <tr key={a.id}><td>{dtm(a.given_at)}</td><td className="num">{inr(a.amount)}</td><td>{a.note || '—'}</td>
-                  <td className="row-actions"><button className="link danger" onClick={() => del('staff_advances', a.id, 'advance')}>Delete</button></td></tr>
+                <tr key={a.id}><td>{dtm(a.given_at)}</td><td><AdvType a={a} /></td><td className="num"><AdvAmount a={a} /></td><td>{a.note || '—'}</td>
+                  <td className="row-actions"><button className="link danger" onClick={() => del('staff_advances', a.id, isReturn(a) ? 'return entry' : 'advance')}>Delete</button></td></tr>
               ))}</tbody>
             </table>
           )}
@@ -353,6 +416,9 @@ function StaffDetail({ staffId, onBack }) {
           )}
         </section>
       </div>
+
+      <RewardsCard rewards={rws} staffList={d.staff} month={month} single onDelete={(a) => del('staff_advances', a.id, 'reward')} />
+      <MonthlyAdvances staffList={d.staff} staffId={s.id} current={month} onPick={setMonth} />
 
       <section className="card flush">
         <h2 className="pad">Daily attendance · {monthLabel(month)}</h2>
@@ -384,12 +450,38 @@ function StaffDetail({ staffId, onBack }) {
   );
 }
 
+function RewardsCard({ rewards, staffList, month, single, onDelete }) {
+  if (!rewards.length) return null;
+  const total = rewards.reduce((t, a) => t + Number(a.amount || 0), 0);
+  return (
+    <section className="card flush reward-card">
+      <h2 className="pad">🎁 Rewards in {monthLabel(month)} <span className="muted small">· {inr(total)} · gifts, not counted in salary or advances</span></h2>
+      <table>
+        <thead><tr><th>Date &amp; time</th>{!single && <th>Staff</th>}<th className="num">Amount</th><th>Occasion / note</th>{onDelete && <th />}</tr></thead>
+        <tbody>
+          {[...rewards].reverse().map((a) => (
+            <tr key={a.id}>
+              <td>{dtm(a.given_at)}</td>
+              {!single && <td>{staffList.find((s) => s.id === a.staff_id)?.name || '—'}</td>}
+              <td className="num"><b>{inr(a.amount)}</b></td>
+              <td>{a.note || '—'}</td>
+              {onDelete && <td className="row-actions"><button className="link danger" onClick={() => onDelete(a)}>Delete</button></td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 // ---------- Forms ----------
 function StaffModals({ modal, setModal, done, staffList, month }) {
   if (!modal) return null;
   const close = () => setModal(null);
   if (modal.staff) return <Modal title={modal.staff.id ? 'Edit staff' : 'Add staff'} onClose={close}><StaffForm s={modal.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.advance) return <Modal title={`Advance · ${modal.advance.staff.name}`} onClose={close}><MoneyForm kind="advance" staff={modal.advance.staff} onSaved={done} onCancel={close} /></Modal>;
+  if (modal.reward) return <Modal title={`🎁 Reward · ${modal.reward.staff.name}`} onClose={close}><MoneyForm kind="reward" staff={modal.reward.staff} onSaved={done} onCancel={close} /></Modal>;
+  if (modal.ret) return <Modal title={`Advance returned · ${modal.ret.staff.name}`} onClose={close}><MoneyForm kind="return" staff={modal.ret.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.pay) return <Modal title={`Pay salary · ${modal.pay.staff.name}`} onClose={close}><MoneyForm kind="pay" staff={modal.pay.staff} month={month} amount={modal.pay.amount} onSaved={done} onCancel={close} /></Modal>;
   if (modal.dayEdit) return <Modal title={`${modal.dayEdit.staff.name} · ${fmtDate(modal.dayEdit.date)}`} onClose={close}><DayForm {...modal.dayEdit} onSaved={done} onCancel={close} /></Modal>;
   return null;
@@ -457,9 +549,12 @@ function MoneyForm({ kind, staff, month, amount, onSaved, onCancel }) {
     if (!(Number(amt) > 0)) { setErr({ message: 'Enter an amount.' }); return; }
     setBusy(true); setErr(null);
     const ts = new Date(when).toISOString();
-    const { error } = kind === 'advance'
+    let { error } = kind === 'advance'
       ? await supabase.from('staff_advances').insert({ staff_id: staff.id, amount: Number(amt), given_at: ts, note: note.trim() || null })
-      : await supabase.from('staff_payments').insert({ staff_id: staff.id, month, amount: Number(amt), paid_at: ts, note: note.trim() || null });
+      : kind === 'return' || kind === 'reward'
+        ? await supabase.from('staff_advances').insert({ staff_id: staff.id, kind, amount: Number(amt), given_at: ts, note: note.trim() || null })
+        : await supabase.from('staff_payments').insert({ staff_id: staff.id, month, amount: Number(amt), paid_at: ts, note: note.trim() || null });
+    if (error && (kind === 'return' || kind === 'reward') && /kind/.test(error.message || '')) error = { message: 'One-time setup needed: run advance-return.sql in Supabase → SQL Editor, then try again.' };
     setBusy(false);
     if (error) setErr(error); else onSaved();
   };
@@ -468,10 +563,13 @@ function MoneyForm({ kind, staff, month, amount, onSaved, onCancel }) {
       <ErrorBox error={err} />
       {kind === 'pay' && <p className="muted small">Salary for <b>{monthLabel(month)}</b>. The amount below is the balance after cuts and advances.</p>}
       {kind === 'advance' && <p className="muted small">This advance will be deducted from {staff.name}’s salary for the month it is given in.</p>}
+      {kind === 'reward' && <p className="muted small">A gift for {staff.name} (tea, help, festival, bonus, good work). It is recorded separately and is <b>not</b> added to advances or cut from salary.</p>}
+      {kind === 'reward' && <div className="chips">{FESTIVALS.map((f) => <button type="button" key={f} className={`chip ${note === f ? 'on' : ''}`} onClick={() => setNote(f)}>{f}</button>)}</div>}
+      {kind === 'return' && <p className="muted small">Use this when {staff.name} gives back advance money. It cancels that much advance, so it will <b>not</b> be cut from salary.</p>}
       <label>Amount (₹)<input type="number" min="1" value={amt} onChange={(e) => setAmt(e.target.value)} autoFocus required /></label>
       <label>Date &amp; time<input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required /></label>
-      <label>Note<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={kind === 'advance' ? 'e.g. cash for festival' : 'e.g. paid by UPI'} /></label>
-      <Buttons busy={busy} onCancel={onCancel} label={kind === 'advance' ? 'Save advance' : 'Save payment'} />
+      <label>{kind === 'reward' ? 'Occasion / note' : 'Note'}<input value={note} onChange={(e) => setNote(e.target.value)} placeholder={kind === 'advance' ? 'e.g. cash for festival' : kind === 'return' ? 'e.g. returned in cash' : kind === 'reward' ? 'e.g. Diwali gift' : 'e.g. paid by UPI'} /></label>
+      <Buttons busy={busy} onCancel={onCancel} label={kind === 'advance' ? 'Save advance' : kind === 'return' ? 'Save returned amount' : kind === 'reward' ? 'Save reward' : 'Save payment'} />
     </form>
   );
 }
