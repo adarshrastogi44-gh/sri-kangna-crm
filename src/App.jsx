@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Campaigns from './pages/Campaigns';
 import Staff from './pages/Staff';
 import Expenses from './pages/Expenses';
+import Rent from './pages/Rent';
 
 const NAV_ICONS = {
   dashboard: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
@@ -22,6 +23,7 @@ const NAV_ICONS = {
   bills: <><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" /></>,
   followups: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4M9 15l2 2 4-4" /></>,
   campaigns: <><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z" /><path d="M16 8a5 5 0 0 1 0 8M19 5a9 9 0 0 1 0 14" /></>,
+  rent: <><circle cx="12" cy="13" r="7" /><path d="M9 3h6l-1.5 3h-3z" /><circle cx="12" cy="13" r="2.5" /></>,
   expenses: <><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18M16 14.5h2" /></>,
   staff: <><circle cx="12" cy="7" r="4" /><path d="M4 21c.6-4.5 4-7 8-7s7.4 2.5 8 7" /></>,
   reports: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
@@ -37,6 +39,7 @@ const PAGES = [
   ['visits', 'Visits'],
   ['bills', 'Bills'],
   ['followups', 'Follow-ups'],
+  ['rent', 'Jewellery Rent'],
   ['campaigns', 'Campaigns'],
   ['expenses', 'Expenses'],
   ['staff', 'Staff'],
@@ -117,6 +120,7 @@ export default function App() {
         {page === 'campaigns' && <Campaigns {...props} />}
         {page === 'staff' && <Staff {...props} />}
         {page === 'expenses' && <Expenses {...props} />}
+        {page === 'rent' && <Rent {...props} />}
       </main>
     </div>
   );
