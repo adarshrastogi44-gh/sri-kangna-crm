@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, Empty, ErrorBox, Loading, Modal, MonthPicker } from '../components';
+import Parties from './Parties';
 import { downloadCSV, fetchAll, inr, monthKey, monthLabel, monthRange } from '../utils';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -17,7 +18,7 @@ export const KINDS = {
 const EXPENSE_CATS = ['Water', 'Battery rent', 'TV recharge', 'Ration', 'Online orders', 'Electricity', 'Rent', 'Tea / snacks', 'Transport', 'Packing material', 'Repair', 'Cleaning', 'Other'];
 const MODES = { cash: 'Cash', upi: 'UPI', card: 'Card', bank: 'Bank' };
 
-export default function Expenses() {
+function ShopExpenses() {
   const [month, setMonth] = useState(monthKey());
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
@@ -213,5 +214,21 @@ function EntryForm({ kind: initialKind, row, people, cats, onSaved, onCancel }) 
         <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : row ? 'Update' : 'Save'}</button>
       </div>
     </form>
+  );
+}
+
+export default function Expenses() {
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem('sk-exp-view') || 'shop'; } catch { return 'shop'; } });
+  const setView = (v) => { setViewState(v); try { localStorage.setItem('sk-exp-view', v); } catch { /* ignore */ } };
+  return (
+    <>
+      <div className="exp-switch-row">
+        <div className="place-switch">
+          <button className={view === 'shop' ? 'on' : ''} onClick={() => setView('shop')}>🧾 Shop expenses</button>
+          <button className={view === 'party' ? 'on' : ''} onClick={() => setView('party')}>🏪 Party accounts</button>
+        </div>
+      </div>
+      {view === 'shop' ? <ShopExpenses /> : <><div className="page-head"><h1>Party accounts</h1><p className="muted" style={{ margin: 0 }}>Purchases from each party and payments you gave them</p></div><Parties /></>}
+    </>
   );
 }

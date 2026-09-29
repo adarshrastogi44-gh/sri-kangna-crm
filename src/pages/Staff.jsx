@@ -55,7 +55,7 @@ export function salaryFor(s, atts, monthAdv, monthPays, allAdv = monthAdv, allPa
   const paid = sum(monthPays);
   const cut = sum(monthPays, () => true, 'adv_cut');
   const left = Math.max(0, Math.round(earned - paid - cut));
-  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, advBalance, paid, cut, left, balance: left };
+  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, advBalance, paid, cut, left, balance: left, toPay: Math.max(0, left - Math.max(0, advBalance)), advAfter: Math.max(0, advBalance - left) };
 }
 
 async function loadMonth(month) {
@@ -302,13 +302,13 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
       <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Day rate = salary ÷ 30 · <b>Absent</b> cuts 1 day, <b>Half day</b> ½ day. <b>Advance balance</b> is the total advance still due from all months. When you pay less salary, the difference is cut from the advance balance.</p>
       <div className="stats">
         <div className="stat"><div className="stat-label">Salary earned · {monthLabel(month, true)}</div><div className="stat-value">{inr(tot('earned'))}</div></div>
-        <div className="stat"><div className="stat-label">Salary left to pay</div><div className="stat-value">{inr(tot('left'))}</div><div className="stat-sub">paid {inr(tot('paid'))} · cut from advance {inr(tot('cut'))}</div></div>
+        <div className="stat"><div className="stat-label">Salary left to pay (after advance)</div><div className="stat-value">{inr(tot('toPay'))}</div><div className="stat-sub">salary left {inr(tot('left'))} − advance {inr(tot('advBalance'))}</div></div>
         <div className="stat warn"><div className="stat-label">Total advance balance</div><div className="stat-value">{inr(tot('advBalance'))}</div><div className="stat-sub">still due from staff (all months)</div></div>
       </div>
       <section className="card flush">
         {rows.length === 0 ? <Empty>No staff yet.</Empty> : (
           <table>
-            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Earned</th><th className="num">Paid</th><th className="num">Cut from advance</th><th className="num">Salary left</th><th className="num">Advance balance</th><th></th></tr></thead>
+            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Earned</th><th className="num">Paid</th><th className="num">Cut from advance</th><th className="num">Advance balance</th><th className="num">To pay (after advance)</th><th></th></tr></thead>
             <tbody>
               {rows.map(({ s, x }) => (
                 <tr key={s.id}>
@@ -318,8 +318,8 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
                   <td className="num">{inr(x.earned)}{x.deduction > 0 && <div className="muted small">cut {inr(x.deduction)}</div>}</td>
                   <td className="num">{x.paid ? inr(x.paid) : '—'}</td>
                   <td className="num">{x.cut ? inr(x.cut) : '—'}</td>
-                  <td className="num"><b>{inr(x.left)}</b></td>
                   <td className="num"><b className={x.advBalance > 0 ? 'adv-due' : ''}>{inr(x.advBalance)}</b></td>
+                  <td className="num"><b className="to-pay">{inr(x.toPay)}</b><div className="muted small">{inr(x.left)} − {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</div></td>
                   <td className="row-actions sal-actions">
                     <button className="link" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
                     <button className="link" onClick={() => setModal({ ret: { staff: s } })}>↩ Return</button>
@@ -328,7 +328,7 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
                   </td>
                 </tr>
               ))}
-              <tr className="total-row"><td><b>Total</b></td><td /><td /><td className="num">{inr(tot('earned'))}</td><td className="num">{inr(tot('paid'))}</td><td className="num">{inr(tot('cut'))}</td><td className="num"><b>{inr(tot('left'))}</b></td><td className="num"><b>{inr(tot('advBalance'))}</b></td><td /></tr>
+              <tr className="total-row"><td><b>Total</b></td><td /><td /><td className="num">{inr(tot('earned'))}</td><td className="num">{inr(tot('paid'))}</td><td className="num">{inr(tot('cut'))}</td><td className="num"><b>{inr(tot('advBalance'))}</b></td><td className="num"><b>{inr(tot('toPay'))}</b></td><td /></tr>
             </tbody>
           </table>
         )}
@@ -414,7 +414,7 @@ function StaffDetail({ staffId, onBack }) {
         <div className="stat"><div className="stat-label">Earned</div><div className="stat-value">{inr(x.earned)}</div><div className="stat-sub">{x.deduction ? `cut ${inr(x.deduction)} for absence` : 'no cut'}</div></div>
         <div className="stat warn"><div className="stat-label">Advance balance (all months)</div><div className="stat-value">{inr(x.advBalance)}</div><div className="stat-sub">this month: given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}{x.cut ? ` · cut ${inr(x.cut)}` : ''}</div></div>
         <div className="stat reward-stat"><div className="stat-label">🎁 Rewards</div><div className="stat-value">{inr(x.rewards)}</div><div className="stat-sub">gifts · not cut from salary</div></div>
-        <div className="stat"><div className="stat-label">Salary left to pay</div><div className="stat-value">{inr(x.left)}</div><div className="stat-sub">paid {inr(x.paid)}{x.cut ? ` · cut from advance ${inr(x.cut)}` : ''}</div></div>
+        <div className="stat to-pay-stat"><div className="stat-label">Salary left to pay (after advance)</div><div className="stat-value">{inr(x.toPay)}</div><div className="stat-sub">salary left {inr(x.left)} − advance {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</div></div>
       </div>
 
       <div className="cols">
