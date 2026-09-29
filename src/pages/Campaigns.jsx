@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { Empty, ErrorBox, Loading, Tags } from '../components';
-import { addDays, billPoints, fetchAll, fmtDate, loadCustomers, loadSettings, redeemedOf, today, waLink } from '../utils';
+import { addDays, billPoints, fetchAll, fmtDate, loadCustomers, loadSettings, redeemedOf, today, waLink, openWhatsApp } from '../utils';
 
 const AUDIENCES = [
   ['all', 'All customers'],
@@ -99,7 +99,7 @@ export default function Campaigns({ openCustomer }) {
   const shown = ql ? list.filter((c) => (c.name || '').toLowerCase().includes(ql) || (c.phone || '').includes(ql)) : list;
   const selectAll = (v) => { const n = { ...skip }; shown.forEach((c) => { n[c.id] = !v; }); setSkips(n); };
   const allShownOn = shown.length > 0 && shown.every((c) => !skip[c.id]);
-  const send = (c) => { window.open(`${waLink(c.phone)}?text=${encodeURIComponent(fill(msg, c, shopName))}`, '_blank'); markSent(c.id); };
+  const send = (c) => { openWhatsApp(`${waLink(c.phone)}?text=${encodeURIComponent(fill(msg, c, shopName))}`); markSent(c.id); };
   const next = chosen.find((c) => !sent[c.id]);
 
   return (

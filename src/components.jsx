@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -993,7 +993,7 @@ export function ShareBill({ bill, customer, small, receiptRef }) {
       } else {
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
         alert('The bill image was downloaded. Attach it in WhatsApp (the chat opens next).');
-        if (link) window.open(link, '_blank');
+        if (link) { if (/wa\.me\//.test(link)) openWhatsApp(link); else window.open(link, '_blank'); }
       }
     } catch (e) { if (e?.name !== 'AbortError') alert('Could not create the image: ' + e.message); }
     finally { setBusy(false); }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { warmUp } from './utils';
+import { warmUp, openWhatsApp } from './utils';
 import { supabase, configOk } from './supabase';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -59,6 +59,18 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Every "WhatsApp" link in the CRM opens in the same WhatsApp tab (or the Desktop app) instead of a new tab each time
+  useEffect(() => {
+    const onClick = (e) => {
+      const a = e.target.closest?.('a[href*="wa.me/"]');
+      if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      openWhatsApp(a.href);
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
   }, []);
 
   // Make sure the signed-in user has a profile row (bills/visits record who created them)

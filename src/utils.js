@@ -258,6 +258,26 @@ export function waText(key, { customer, shop, due = 0, bill, points, earned, fol
       return '';
   }
 }
+// ---------- Open WhatsApp: reuse ONE tab, or the WhatsApp Desktop app ----------
+// Websites cannot take over a tab you opened yourself (like a pinned WhatsApp tab) — browsers block that for safety.
+// So the CRM keeps its OWN WhatsApp tab (named "sk-whatsapp") and reuses it every time, or opens the Desktop app.
+export const getWaMode = () => { try { return localStorage.getItem('sk-wa-mode') || 'web'; } catch { return 'web'; } };
+export const setWaMode = (m) => { try { localStorage.setItem('sk-wa-mode', m); } catch { /* ignore */ } };
+export function waTarget(url) {
+  const m = /wa\.me\/(\d+)(?:\?text=(.*))?/.exec(url || '');
+  if (!m) return url;
+  const [, phone, text = ''] = m;
+  return getWaMode() === 'app'
+    ? `whatsapp://send?phone=${phone}${text ? `&text=${text}` : ''}`
+    : `https://web.whatsapp.com/send?phone=${phone}${text ? `&text=${text}` : ''}`;
+}
+export function openWhatsApp(url) {
+  const u = waTarget(url);
+  if (u.startsWith('whatsapp://')) { window.location.href = u; return; }
+  const w = window.open(u, 'sk-whatsapp');
+  try { w?.focus(); } catch { /* ignore */ }
+}
+
 export function waSend(phone, text) {
   const base = waLink(phone);
   if (!base) return null;

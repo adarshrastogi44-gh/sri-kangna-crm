@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ErrorBox, Loading, Modal, PinInput } from '../components';
-import { DEFAULT_TERMS, hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
+import { getWaMode, setWaMode, DEFAULT_TERMS, hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
 import { supabase } from '../supabase';
 
 export default function Settings() {
@@ -51,8 +51,29 @@ export default function Settings() {
           </div>
         </form>
       </section>
+      <WhatsAppCard />
       <PinCard />
     </>
+  );
+}
+
+function WhatsAppCard() {
+  const [mode, setMode] = useState(getWaMode);
+  const pick = (m) => { setMode(m); setWaMode(m); };
+  return (
+    <section className="card narrow-card">
+      <h2>WhatsApp</h2>
+      <p className="muted small">How “Send on WhatsApp” opens on this computer.</p>
+      <div className="place-pick">
+        <button type="button" className={mode === 'web' ? 'on' : ''} onClick={() => pick('web')}>🌐 WhatsApp Web — one tab, reused</button>
+        <button type="button" className={mode === 'app' ? 'on' : ''} onClick={() => pick('app')}>💻 WhatsApp Desktop app</button>
+      </div>
+      <p className="muted small" style={{ marginTop: 10 }}>
+        {mode === 'web'
+          ? 'The first message opens a WhatsApp tab; every next message uses that same tab. Tip: pin that tab instead of your old one. (A browser never lets a website use a tab you opened yourself.)'
+          : 'Messages open straight in the WhatsApp Desktop app — fastest, no loading. Install “WhatsApp” from the Microsoft Store and log in once. The first time, Chrome asks “Open WhatsApp?” — tick “Always allow”.'}
+      </p>
+    </section>
   );
 }
 
