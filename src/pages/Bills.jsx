@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { BillForm, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
-import { billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthRange } from '../utils';
+import { BillForm, DateInput, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
+import { billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthLabel, monthRange, today } from '../utils';
+
+const shiftDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+const dayName = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
 
 export default function Bills({ user, openCustomer }) {
-  const [month, setMonth] = useState(monthKey());
+  const [view, setView] = useState('day');
+  const [day, setDay] = useState(today());
+  const [monthSel, setMonth] = useState(monthKey());
+  const month = view === 'day' ? day.slice(0, 7) : monthSel;
   const [filter, setFilter] = useState('all');
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
@@ -28,7 +34,10 @@ export default function Bills({ user, openCustomer }) {
   }, [month, tick]);
 
   const done = () => { setModal(null); setTick((t) => t + 1); };
-  const shown = rows ? rows.filter((b) => filter === 'all' || (filter === 'due' ? dueOf(b) > 0 : b.payment_status === 'paid')) : [];
+  const inView = rows ? (view === 'day' ? rows.filter((b) => b.bill_date === day) : rows) : [];
+  const shown = inView.filter((b) => filter === 'all' || (filter === 'due' ? dueOf(b) > 0 : b.payment_status === 'paid'));
+  const dayRows = rows && view === 'month' ? Object.entries(rows.reduce((g, b) => { const k = b.bill_date; (g[k] ||= { n: 0, total: 0, paid: 0, due: 0 }); g[k].n += 1; g[k].total += Number(b.amount || 0); g[k].paid += Number(b.paid_amount || 0); g[k].due += dueOf(b); return g; }, {})).sort((a, b) => b[0].localeCompare(a[0])) : [];
+  const openDay = (d) => { setDay(d); setView('day'); };
   const sum = (k) => shown.reduce((s, b) => s + Number(b[k] || 0), 0);
 
   return (
@@ -36,7 +45,18 @@ export default function Bills({ user, openCustomer }) {
       <div className="page-head">
         <h1>Bills</h1>
         <div className="actions">
-          <MonthPicker value={month} onChange={setMonth} />
+          <div className="tabs">
+            <button className={view === 'day' ? 'active' : ''} onClick={() => setView('day')}>Day</button>
+            <button className={view === 'month' ? 'active' : ''} onClick={() => { setMonth(day.slice(0, 7)); setView('month'); }}>Month</button>
+          </div>
+          {view === 'day' ? (
+            <div className="day-pick">
+              <button className="btn small" onClick={() => setDay(shiftDay(day, -1))} title="Previous day">◀</button>
+              <DateInput value={day} onChange={(v) => v && setDay(v)} />
+              <button className="btn small" onClick={() => setDay(shiftDay(day, 1))} disabled={day >= today()} title="Next day">▶</button>
+              {day !== today() && <button className="btn small" onClick={() => setDay(today())}>Today</button>}
+            </div>
+          ) : <MonthPicker value={monthSel} onChange={setMonth} />}
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All bills</option>
             <option value="due">With dues</option>
@@ -49,7 +69,30 @@ export default function Bills({ user, openCustomer }) {
       <ErrorBox error={err} />
       {!rows ? <Loading /> : (
         <>
-          <p className="muted">{shown.length} bills · Total {inr(sum('amount'))} · Collected {inr(sum('paid_amount'))} · Due {inr(shown.reduce((s, b) => s + dueOf(b), 0))}</p>
+          <div className="stats day-stats">
+            <div className="stat day-total"><div className="stat-label">{view === 'day' ? `Sale · ${day === today() ? 'Today' : fmtDate(day)} (${dayName(day)})` : `Sale · ${monthLabel(month)}`}</div><div className="stat-value">{inr(sum('amount'))}</div><div className="stat-sub">{shown.length} bill{shown.length === 1 ? '' : 's'}{shown.length ? ` · avg ${inr(Math.round(sum('amount') / shown.length))}` : ''}</div></div>
+            <div className="stat"><div className="stat-label">Collected</div><div className="stat-value">{inr(sum('paid_amount'))}</div></div>
+            <div className={`stat ${shown.some((b) => dueOf(b) > 0) ? 'warn' : ''}`}><div className="stat-label">Due</div><div className="stat-value">{inr(shown.reduce((t, b) => t + dueOf(b), 0))}</div></div>
+            <div className="stat"><div className="stat-label">Customers</div><div className="stat-value">{new Set(shown.map((b) => b.customer_id)).size}</div></div>
+          </div>
+          {view === 'month' && dayRows.length > 0 && (
+            <section className="card flush">
+              <h2 className="pad">Day-wise sale · {monthLabel(month)} <span className="muted small">— click a day to see its bills</span></h2>
+              <table>
+                <thead><tr><th>Date</th><th className="num">Bills</th><th className="num">Total sale</th><th className="num">Collected</th><th className="num">Due</th></tr></thead>
+                <tbody>
+                  {dayRows.map(([d, v]) => (
+                    <tr key={d} className="click" onClick={() => openDay(d)}>
+                      <td><b>{fmtDate(d)}</b> <span className="muted small">{dayName(d)}</span></td>
+                      <td className="num">{v.n}</td><td className="num"><b>{inr(v.total)}</b></td><td className="num">{inr(v.paid)}</td><td className="num">{v.due ? inr(v.due) : '—'}</td>
+                    </tr>
+                  ))}
+                  <tr className="total-row"><td><b>Month total</b></td><td className="num">{rows.length}</td><td className="num"><b>{inr(rows.reduce((t, b) => t + Number(b.amount || 0), 0))}</b></td><td className="num">{inr(rows.reduce((t, b) => t + Number(b.paid_amount || 0), 0))}</td><td className="num">{inr(rows.reduce((t, b) => t + dueOf(b), 0))}</td></tr>
+                </tbody>
+              </table>
+            </section>
+          )}
+          {view === 'month' && <h2 className="bills-h">All bills · {monthLabel(month)}</h2>}
           <section className="card flush">
             {shown.length === 0 ? <Empty>No bills to show.</Empty> : (
               <table>
