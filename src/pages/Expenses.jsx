@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, Empty, ErrorBox, Loading, Modal, MonthPicker } from '../components';
-import Parties from './Parties';
+import Parties, { PartyEntryForm } from './Parties';
 import { downloadCSV, fetchAll, inr, monthKey, monthLabel, monthRange } from '../utils';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -263,7 +263,7 @@ function CategorySheet({ place, category, tick, onBack, onAdd, onEdit, onDelete 
   );
 }
 
-function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cats, onSaved, onCancel }) {
+function EntryForm({ place = 'shop', kind: initialKind, row, preset, people = [], cats = [], onSaved, onCancel, lock }) {
   const [where, setWhere] = useState(row ? placeOf(row) : place);
   const quick = PLACE[where].cats;
   const [kind, setKind] = useState(initialKind);
@@ -340,12 +340,12 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
   return (
     <form className="form" onSubmit={submit}>
       <ErrorBox error={err} />
-      {where === 'shop' && (
+      {where === 'shop' && !lock && (
         <div className="tabs">
           {Object.entries(KINDS).map(([k, v]) => <button type="button" key={k} className={kind === k ? 'active' : ''} onClick={() => switchKind(k)}>{v.label}</button>)}
         </div>
       )}
-      {kind === 'expense' && (
+      {kind === 'expense' && !lock && (
         <div className="place-pick">
           <button type="button" className={where === 'shop' ? 'on' : ''} onClick={() => setWhere('shop')}>🧾 Shop expense</button>
           <button type="button" className={where === 'home' ? 'on' : ''} onClick={() => setWhere('home')}>🏠 Home expense</button>
@@ -353,8 +353,8 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
       )}
       {kind === 'expense' && (
         <>
-          <label>Category
-            <input list="exp-cats" value={f.category} onChange={set('category')} placeholder="Pick or type, e.g. Water" required autoFocus={!row} />
+          <label>{where === 'home' ? 'Home expense head' : 'Shop expense head'}
+            <input list="exp-cats" value={f.category} onChange={set('category')} placeholder={where === 'home' ? 'Pick or type, e.g. Ration' : 'Pick or type, e.g. Water'} required autoFocus={!row} />
             <datalist id="exp-cats">{[...new Set([...quick, ...cats])].map((c) => <option key={c} value={c} />)}</datalist>
           </label>
           <div className="chips">{quick.map((c) => <button type="button" key={c} className={`chip ${f.category === c ? 'on' : ''}`} onClick={() => setF({ ...f, category: c })}>{c}</button>)}</div>
@@ -403,7 +403,7 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
           </label>
         ) : <span />}
       </div>
-      <label>Note<input value={f.note} onChange={set('note')} placeholder={kind === 'withdrawal' ? 'e.g. for home, for supplier payment' : kind === 'deposit' ? 'e.g. PNB, slip no.' : 'e.g. 2 water cans'} /></label>
+      <label>Note<input value={f.note} onChange={set('note')} placeholder={kind === 'withdrawal' ? 'e.g. for home, for supplier payment' : kind === 'deposit' ? 'e.g. PNB, slip no.' : where === 'home' ? 'e.g. monthly ration' : 'e.g. 2 water cans'} /></label>
       <div className="actions" style={{ justifyContent: 'flex-end' }}>
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : row ? 'Update' : 'Save'}</button>
@@ -412,19 +412,62 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
   );
 }
 
+const TARGETS = [
+  ['shop', '🧾', 'Shop expense', 'Water, battery rent, TV recharge, online orders…'],
+  ['home', '🏠', 'Home expense', 'Ration, vegetables, milk, gas, school fees…'],
+  ['party', '🏪', 'Party account', 'Purchase from a party or payment to a party'],
+  ['deposit', '🏦', 'Bank deposit', 'Cash to my bank, or deposit into a party’s account'],
+  ['cash', '💵', 'Cash taken', 'Someone took cash from the counter'],
+];
+
+// One "Add entry" for everything: first choose WHERE, then the matching headings appear
+function AddEntry({ onSaved, onCancel }) {
+  const [target, setTarget] = useState(null);
+  if (!target) {
+    return (
+      <div className="target-grid">
+        {TARGETS.map(([k, icon, title, sub]) => (
+          <button key={k} type="button" className="target-tile" onClick={() => setTarget(k)}>
+            <span className="tt-icon">{icon}</span><b>{title}</b><span className="muted small">{sub}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+  const t = TARGETS.find((x) => x[0] === target);
+  return (
+    <>
+      <div className="target-chosen"><span>{t[1]} Filing in <b>{t[2]}</b></span><button type="button" className="link" onClick={() => setTarget(null)}>change</button></div>
+      {target === 'shop' && <EntryForm lock place="shop" kind="expense" cats={SHOP_CATS} onSaved={() => onSaved('shop')} onCancel={onCancel} />}
+      {target === 'home' && <EntryForm lock place="home" kind="expense" cats={HOME_CATS} onSaved={() => onSaved('home')} onCancel={onCancel} />}
+      {target === 'deposit' && <EntryForm lock place="shop" kind="deposit" onSaved={() => onSaved('shop')} onCancel={onCancel} />}
+      {target === 'cash' && <EntryForm lock place="shop" kind="withdrawal" onSaved={() => onSaved('shop')} onCancel={onCancel} />}
+      {target === 'party' && <PartyEntryForm kind="purchase" onSaved={() => onSaved('party')} onCancel={onCancel} />}
+    </>
+  );
+}
+
 export default function Expenses() {
+  const [adding, setAdding] = useState(false);
+  const [ver, setVer] = useState(0);
   const [view, setViewState] = useState(() => { try { return localStorage.getItem('sk-exp-view') || 'shop'; } catch { return 'shop'; } });
   const setView = (v) => { setViewState(v); try { localStorage.setItem('sk-exp-view', v); } catch { /* ignore */ } };
   return (
     <>
       <div className="exp-switch-row">
+        <button className="btn primary add-entry-btn" onClick={() => setAdding(true)}>＋ Add entry</button>
         <div className="place-switch">
           <button className={view === 'shop' ? 'on' : ''} onClick={() => setView('shop')}>🧾 Shop expenses</button>
           <button className={view === 'home' ? 'on' : ''} onClick={() => setView('home')}>🏠 Home expenses</button>
           <button className={view === 'party' ? 'on' : ''} onClick={() => setView('party')}>🏪 Party accounts</button>
         </div>
       </div>
-      {view === 'shop' || view === 'home' ? <ExpenseBook key={view} place={view} /> : <><div className="page-head"><h1>Party accounts</h1><p className="muted" style={{ margin: 0 }}>Purchases from each party and payments you gave them</p></div><Parties /></>}
+      {adding && (
+        <Modal title="Add entry — where do you want to file it?" onClose={() => setAdding(false)}>
+          <AddEntry onCancel={() => setAdding(false)} onSaved={(where) => { setAdding(false); setView(where); setVer((v) => v + 1); }} />
+        </Modal>
+      )}
+      {view === 'shop' || view === 'home' ? <ExpenseBook key={view + ver} place={view} /> : <><div className="page-head"><h1>Party accounts</h1><p className="muted" style={{ margin: 0 }}>Purchases from each party and payments you gave them</p></div><Parties key={ver} /></>}
     </>
   );
 }

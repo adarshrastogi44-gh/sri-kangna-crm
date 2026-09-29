@@ -173,7 +173,7 @@ function PartyModals({ modal, setModal, done, parties }) {
   if (modal.partyForm) return <Modal title={modal.partyForm.id ? 'Edit party' : 'Add party'} onClose={close}><PartyForm p={modal.partyForm} onSaved={done} onCancel={close} /></Modal>;
   return (
     <Modal title={`${modal.entry ? 'Edit' : 'Add'} ${modal.kind === 'purchase' ? 'purchase' : 'payment to party'}`} onClose={close}>
-      <EntryForm kind={modal.kind} party={modal.party} entry={modal.entry} parties={parties} onSaved={done} onCancel={close} />
+      <PartyEntryForm kind={modal.kind} party={modal.party} entry={modal.entry} parties={parties} onSaved={done} onCancel={close} />
     </Modal>
   );
 }
@@ -205,7 +205,10 @@ function PartyForm({ p, onSaved, onCancel }) {
   );
 }
 
-function EntryForm({ kind: kind0, party, entry, parties, onSaved, onCancel }) {
+export function PartyEntryForm({ kind: kind0, party, entry, parties: parties0, onSaved, onCancel }) {
+  const [parties, setParties] = useState(parties0 || []);
+  const [newParty, setNewParty] = useState(null);
+  useEffect(() => { if (!parties0) supabase.from('parties').select('*').order('name').then(({ data }) => setParties(data || [])); }, [parties0]);
   const [kind, setKind] = useState(kind0);
   const [f, setF] = useState({
     party_id: party?.id || entry?.party_id || '',
@@ -225,7 +228,17 @@ function EntryForm({ kind: kind0, party, entry, parties, onSaved, onCancel }) {
     setBusy(false);
     if (error) setErr(error); else onSaved();
   };
-  const active = parties.filter((p) => p.active || p.id === f.party_id);
+  const active = parties.filter((p) => p.active !== false || p.id === f.party_id);
+  const addParty = async () => {
+    const name = (newParty || '').trim();
+    if (!name) { setNewParty(null); return; }
+    const found = parties.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (found) { setF({ ...f, party_id: found.id }); setNewParty(null); return; }
+    const { data, error } = await supabase.from('parties').insert({ name }).select().single();
+    if (error) { setErr(error); return; }
+    setParties([...parties, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setF({ ...f, party_id: data.id }); setNewParty(null);
+  };
   return (
     <form className="form" onSubmit={submit}>
       <ErrorBox error={err} />
@@ -239,6 +252,15 @@ function EntryForm({ kind: kind0, party, entry, parties, onSaved, onCancel }) {
           {active.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
+      {!party && (newParty === null
+        ? <button type="button" className="chip add-chip start" onClick={() => setNewParty('')}>+ Add new party</button>
+        : (
+          <span className="colour-add">
+            <input autoFocus value={newParty} onChange={(e) => setNewParty(e.target.value)} placeholder="New party name"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addParty(); } if (e.key === 'Escape') setNewParty(null); }} />
+            <button type="button" className="btn small primary" onClick={addParty}>Add</button>
+          </span>
+        ))}
       <div className="grid2">
         <label>Amount (₹)<input type="number" min="1" step="any" value={f.amount} onChange={set('amount')} required autoFocus={Boolean(party)} /></label>
         <label>Date &amp; time<input type="datetime-local" value={f.when} onChange={set('when')} required /></label>
