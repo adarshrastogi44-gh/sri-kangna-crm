@@ -44,6 +44,7 @@ function ExpenseBook({ place = 'shop' }) {
   const done = () => { setModal(null); setTick((t) => t + 1); };
   const del = async (r) => {
     if (!window.confirm(`Delete this entry of ${inr(r.amount)}?`)) return;
+    if (r.party_entry_id) await supabase.from('party_entries').delete().eq('id', r.party_entry_id);
     const { error } = await supabase.from('expenses').delete().eq('id', r.id);
     if (error) alert(error.message); else setTick((t) => t + 1);
   };
@@ -276,6 +277,25 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // Bank deposit can be a payment straight into a party's account
+  const [toParty, setToParty] = useState(Boolean(row?.party_id));
+  const [partyId, setPartyId] = useState(row?.party_id || '');
+  const [parties, setParties] = useState([]);
+  const [newParty, setNewParty] = useState(null);
+  useEffect(() => {
+    if (kind !== 'deposit') return;
+    supabase.from('parties').select('id,name,active').order('name').then(({ data }) => setParties(data || []));
+  }, [kind]);
+  const addParty = async () => {
+    const name = (newParty || '').trim();
+    if (!name) { setNewParty(null); return; }
+    const found = parties.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (found) { setPartyId(found.id); setNewParty(null); return; }
+    const { data, error } = await supabase.from('parties').insert({ name }).select().single();
+    if (error) { setErr(error); return; }
+    setParties([...parties, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setPartyId(data.id); setNewParty(null);
+  };
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const switchKind = (k) => {
     setKind(k);
@@ -285,13 +305,37 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
     e.preventDefault(); e.stopPropagation();
     if (!(Number(f.amount) > 0)) { setErr({ message: 'Enter an amount.' }); return; }
     if (kind === 'withdrawal' && !f.person.trim()) { setErr({ message: 'Write who took the cash.' }); return; }
+    const party = kind === 'deposit' && toParty ? parties.find((p) => p.id === partyId) : null;
+    if (kind === 'deposit' && toParty && !party) { setErr({ message: 'Choose the party (or add a new one).' }); return; }
     setBusy(true); setErr(null);
-    const data = { kind, place: kind === 'expense' ? where : 'shop', category: (f.category || 'Other').trim(), amount: Number(f.amount), entry_at: new Date(f.when).toISOString(), person: f.person.trim() || null, mode: f.mode, note: f.note.trim() || null };
-    const write = (d) => (row ? supabase.from('expenses').update(d).eq('id', row.id) : supabase.from('expenses').insert(d));
-    let { error } = await write(data);
-    if (error && /place/.test(error.message || '')) { const { place: _p, ...rest } = data; ({ error } = await write(rest)); } // "place" column not added yet
-    setBusy(false);
-    if (error) setErr(error); else onSaved();
+    const entryAt = new Date(f.when).toISOString();
+    try {
+      // 1) the party's account gets a payment entry (created, updated or removed to match this deposit)
+      let partyEntryId = row?.party_entry_id || null;
+      if (party) {
+        const pe = { party_id: party.id, kind: 'payment', amount: Number(f.amount), entry_at: entryAt, mode: 'bank', note: `Bank deposit${f.note.trim() ? ` · ${f.note.trim()}` : ''}` };
+        const res = partyEntryId ? await supabase.from('party_entries').update(pe).eq('id', partyEntryId).select().single() : await supabase.from('party_entries').insert(pe).select().single();
+        if (res.error) throw res.error;
+        partyEntryId = res.data.id;
+      } else if (partyEntryId) {
+        await supabase.from('party_entries').delete().eq('id', partyEntryId);
+        partyEntryId = null;
+      }
+      // 2) the expense sheet entry
+      const data = {
+        kind, place: kind === 'expense' ? where : 'shop',
+        category: party ? `Party: ${party.name}` : (kind === 'deposit' ? 'Bank deposit' : (f.category || 'Other').trim()),
+        amount: Number(f.amount), entry_at: entryAt, person: f.person.trim() || null, mode: f.mode, note: f.note.trim() || null,
+        party_id: party ? party.id : null, party_entry_id: partyEntryId,
+      };
+      const write = (d) => (row ? supabase.from('expenses').update(d).eq('id', row.id) : supabase.from('expenses').insert(d));
+      let { error } = await write(data);
+      if (error && /place|party_id|party_entry_id/.test(error.message || '')) { // columns not added yet: save without them
+        const { place: _p, party_id: _a, party_entry_id: _b, ...rest } = data; ({ error } = await write(rest));
+      }
+      if (error) throw error;
+      setBusy(false); onSaved();
+    } catch (x) { setBusy(false); setErr(x); }
   };
   return (
     <form className="form" onSubmit={submit}>
@@ -315,6 +359,34 @@ function EntryForm({ place = 'shop', kind: initialKind, row, preset, people, cat
           </label>
           <div className="chips">{quick.map((c) => <button type="button" key={c} className={`chip ${f.category === c ? 'on' : ''}`} onClick={() => setF({ ...f, category: c })}>{c}</button>)}</div>
         </>
+      )}
+      {kind === 'deposit' && (
+        <div className="dep-box">
+          <div className="place-pick">
+            <button type="button" className={!toParty ? 'on' : ''} onClick={() => setToParty(false)}>🏦 My bank account</button>
+            <button type="button" className={toParty ? 'on' : ''} onClick={() => setToParty(true)}>🏪 Party's account (payment)</button>
+          </div>
+          {toParty && (
+            <>
+              <label>Party
+                <select value={partyId} onChange={(e) => setPartyId(e.target.value)}>
+                  <option value="">— choose party —</option>
+                  {parties.filter((p) => p.active !== false || p.id === partyId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+              {newParty === null
+                ? <button type="button" className="chip add-chip" onClick={() => setNewParty('')}>+ Add new party</button>
+                : (
+                  <span className="colour-add">
+                    <input autoFocus value={newParty} onChange={(e) => setNewParty(e.target.value)} placeholder="New party name"
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addParty(); } if (e.key === 'Escape') setNewParty(null); }} />
+                    <button type="button" className="btn small primary" onClick={addParty}>Add</button>
+                  </span>
+                )}
+              <p className="muted small" style={{ margin: 0 }}>Saved once: shows here as a bank deposit <b>and</b> as a payment in the party’s account.</p>
+            </>
+          )}
+        </div>
       )}
       <div className="grid2">
         <label>Amount (₹)<input type="number" min="1" step="any" value={f.amount} onChange={set('amount')} required autoFocus={kind !== 'expense' && !row} /></label>

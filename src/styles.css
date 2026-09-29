@@ -655,3 +655,6 @@ tr.cur-month td { background: #fff7e8; }
 .exp-switch-row { display: flex; justify-content: flex-end; margin-bottom: -6px; }
 .sheet-cols { grid-template-columns: 1fr 2fr; }
 @media (max-width: 760px) { .sheet-cols { grid-template-columns: 1fr; } }
+.dep-box { display: flex; flex-direction: column; gap: 8px; background: #fffafb; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.dep-box label { margin: 0; }
+.dep-box .add-chip, .dep-box .colour-add { align-self: flex-start; }
