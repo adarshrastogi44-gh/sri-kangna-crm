@@ -653,3 +653,5 @@ tr.cur-month td { background: #fff7e8; }
 .to-pay { color: var(--green); font-size: 16px; }
 .to-pay-stat { border-color: #cfe9d9 !important; background: linear-gradient(135deg, #f2fbf5, #e6f6ec) !important; }
 .exp-switch-row { display: flex; justify-content: flex-end; margin-bottom: -6px; }
+.sheet-cols { grid-template-columns: 1fr 2fr; }
+@media (max-width: 760px) { .sheet-cols { grid-template-columns: 1fr; } }
