@@ -690,3 +690,6 @@ tr.cur-month td { background: #fff7e8; }
 .receipt.small .r-sri { font-size: 16px !important; }
 .thermal { padding-top: 0 !important; }
 @media print { .print-root, .print-root > .thermal:first-of-type { margin-top: 0 !important; padding-top: 0 !important; } }
+
+.slow-box { margin: 14px auto 0; max-width: 420px; color: var(--text); }
+.slow-box p { margin: 0 0 10px; }

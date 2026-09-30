@@ -22,7 +22,21 @@ export const ErrorBox = ({ error }) =>
   error ? <div className="error">{error.message || String(error)}</div> : null;
 
 export const Empty = ({ children }) => <div className="empty">{children}</div>;
-export const Loading = () => <div className="empty">Loading…</div>;
+export function Loading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSlow(true), 12000); return () => clearTimeout(t); }, []);
+  return (
+    <div className="empty">
+      Loading…
+      {slow && (
+        <div className="slow-box">
+          <p>This is taking longer than usual. Check your internet, or the database may be paused in Supabase.</p>
+          <button className="btn primary" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
+    </div>
+  );
+}
 export const Badge = ({ tone = 'gray', children }) => <span className={`badge ${tone}`}>{children}</span>;
 
 export const StatusBadge = ({ status }) => {
