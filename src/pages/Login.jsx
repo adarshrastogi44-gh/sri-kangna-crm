@@ -21,9 +21,9 @@ export default function Login() {
   }); };
 
   const sendCode = (e) => { e?.preventDefault(); run(async () => {
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false } });
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/?reset=1` } });
     if (error) throw (/signups not allowed|not found/i.test(error.message) ? { message: 'No account with this email. Check the spelling.' } : error);
-    setMode('code'); setInfo(`A 6-digit code was sent to ${email.trim()}. Check your inbox (and Spam).`);
+    setMode('code'); setInfo(`Email sent to ${email.trim()}. Open it on this computer and click “Sign in” — the CRM opens and asks for your new password. (Check Spam too.)`);
   }); };
 
   const verify = (e) => { e.preventDefault(); run(async () => {
@@ -63,7 +63,8 @@ export default function Login() {
         {mode === 'code' && (
           <form className="form" onSubmit={verify}>
             <p className="notice">{info}</p>
-            <label>6-digit code<input className="pin-input code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} required value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus placeholder="••••••" /></label>
+            <p className="muted small" style={{ margin: 0 }}>If your email shows a 6-digit code instead of a link, type it here:</p>
+            <label>Code<input className="pin-input code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} required value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus placeholder="••••••" /></label>
             <ErrorBox error={error} />
             <button className="btn primary" disabled={busy || code.length < 6}>{busy ? 'Checking…' : 'Verify code'}</button>
             <div className="actions" style={{ justifyContent: 'space-between' }}>

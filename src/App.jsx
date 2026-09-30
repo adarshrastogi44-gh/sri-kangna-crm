@@ -53,7 +53,16 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [customerId, setCustomerId] = useState(null);
   const [back, setBack] = useState('customers');
-  const [resetting, setResetting] = useState(() => { try { return sessionStorage.getItem(RESET_FLAG) === '1'; } catch { return false; } });
+  const [resetting, setResetting] = useState(() => {
+    try {
+      // Coming back from the "Sign in" link in the reset email → ask for a new password
+      if (/[?&]reset=1/.test(window.location.search)) {
+        sessionStorage.setItem(RESET_FLAG, '1');
+        window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+      }
+      return sessionStorage.getItem(RESET_FLAG) === '1';
+    } catch { return false; }
+  });
 
   useEffect(() => {
     if (!configOk) return;
