@@ -680,3 +680,13 @@ tr.cur-month td { background: #fff7e8; }
 .r-sri { font-family: Georgia, 'Times New Roman', serif; font-size: 34px; font-weight: 700; color: #c93a6c; line-height: 1; }
 .receipt.small .r-sri { font-size: 22px; }
 .receipt.small .r-brand { flex-direction: column; gap: 2px; text-align: center; }
+
+.pcs { color: var(--brand); font-size: 16px; }
+.item-sales table { font-size: 14px; }
+.item-sales .stats { grid-template-columns: repeat(3, 1fr); }
+/* Bill top: smaller "Sri" and no gap at the top */
+.t-sri { font-size: 18px !important; margin: 0 !important; line-height: 1 !important; }
+.r-sri { font-size: 24px !important; }
+.receipt.small .r-sri { font-size: 16px !important; }
+.thermal { padding-top: 0 !important; }
+@media print { .print-root, .print-root > .thermal:first-of-type { margin-top: 0 !important; padding-top: 0 !important; } }
