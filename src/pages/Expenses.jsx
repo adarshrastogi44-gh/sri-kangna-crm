@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, Empty, ErrorBox, Loading, Modal, MonthPicker } from '../components';
 import Parties, { PartyEntryForm } from './Parties';
+import CashCounter from './CashCounter';
 import { downloadCSV, fetchAll, inr, monthKey, monthLabel, monthRange } from '../utils';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -460,6 +461,7 @@ export default function Expenses() {
           <button className={view === 'shop' ? 'on' : ''} onClick={() => setView('shop')}>🧾 Shop expenses</button>
           <button className={view === 'home' ? 'on' : ''} onClick={() => setView('home')}>🏠 Home expenses</button>
           <button className={view === 'party' ? 'on' : ''} onClick={() => setView('party')}>🏪 Party accounts</button>
+          <button className={view === 'cash' ? 'on' : ''} onClick={() => setView('cash')}>💵 Cash counter</button>
         </div>
       </div>
       {adding && (
@@ -467,7 +469,7 @@ export default function Expenses() {
           <AddEntry onCancel={() => setAdding(false)} onSaved={(where) => { setAdding(false); setView(where); setVer((v) => v + 1); }} />
         </Modal>
       )}
-      {view === 'shop' || view === 'home' ? <ExpenseBook key={view + ver} place={view} /> : <><div className="page-head"><h1>Party accounts</h1><p className="muted" style={{ margin: 0 }}>Purchases from each party and payments you gave them</p></div><Parties key={ver} /></>}
+      {view === 'cash' ? <CashCounter key={ver} /> : view === 'shop' || view === 'home' ? <ExpenseBook key={view + ver} place={view} /> : <><div className="page-head"><h1>Party accounts</h1><p className="muted" style={{ margin: 0 }}>Purchases from each party and payments you gave them</p></div><Parties key={ver} /></>}
     </>
   );
 }

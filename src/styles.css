@@ -694,3 +694,22 @@ tr.cur-month td { background: #fff7e8; }
 .slow-box { margin: 14px auto 0; max-width: 420px; color: var(--text); }
 .slow-box p { margin: 0 0 10px; }
 .forgot-link { align-self: center; font-size: 14px; }
+
+/* Bill payment mode */
+.pay-mode-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Cash counter */
+.cash-hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.cash-hero > div { background: #fff; border: 1px solid #efe4e8; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.cash-hero span { font-size: 13px; color: var(--muted); }
+.cash-hero b { font-size: 24px; }
+.cash-hero .plus b { color: var(--green); }
+.cash-hero .minus b { color: var(--red); }
+.cash-hero .eq { background: linear-gradient(135deg, #5a1231, #c72650); border: 0; }
+.cash-hero .eq span, .cash-hero .eq b { color: #fff; }
+.cash-hero .eq b { font-size: 28px; }
+.cash-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.cash-diff { border-radius: 8px; padding: 8px 12px; font-weight: 700; margin-bottom: 10px; }
+.cash-diff.ok { background: var(--green-bg); color: var(--green); }
+.cash-diff.more { background: var(--blue-bg); color: var(--blue); }
+.cash-diff.less { background: var(--red-bg); color: var(--red); }
+@media (max-width: 900px) { .cash-hero { grid-template-columns: 1fr 1fr; } }

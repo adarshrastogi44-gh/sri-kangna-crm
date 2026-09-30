@@ -365,6 +365,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [prodErr, setProdErr] = useState(null);
   const [pick, setPick] = useState({ q: '', id: '', qty: 1, rate: '', customName: '', customRate: '' });
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
+  const [payMode, setPayMode] = useState(bill?.pay_mode || 'cash');
+  const [cashPart, setCashPart] = useState(bill?.cash_part ?? '');
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
   const [redeem, setRedeem] = useState(bill ? String(redeemedOf(bill) || '') : '');
@@ -450,6 +452,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         payment_status: status,
         notes: f.notes,
       });
+      row.pay_mode = payMode;
+      if (payMode === 'split') row.cash_part = Number(cashPart || 0);
       if (redeemOk) row.points_redeemed = used;
       if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
@@ -457,7 +461,9 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       const save = async (r) => {
         const tries = [r.payment_status, ...(r.payment_status === 'paid' ? [] : r.payment_status === 'partial' ? ['partially_paid', 'pending', 'due'] : ['pending', 'due', 'partial']), null];
         let last;
-        for (const st of [...new Set(tries)]) {
+        const list = [...new Set(tries)];
+        for (let i = 0; i < list.length; i += 1) {
+          const st = list[i];
           const data = { ...r };
           if (st === null) delete data.payment_status; else data.payment_status = st;
           const res = bill
@@ -465,6 +471,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
             : await supabase.from('bills').insert({ ...data, created_by: user.id }).select().single();
           if (!res.error) return res.data;
           last = res.error;
+          if (/pay_mode|cash_part/i.test(res.error.message || '') && ('pay_mode' in r || 'cash_part' in r)) { delete r.pay_mode; delete r.cash_part; i -= 1; continue; } // column not added yet: retry without it
           if (!/payment_status/i.test(res.error.message || '')) break;
         }
         throw last;
@@ -546,7 +553,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
                 <td className="num"><input className="mini wide" type="number" min="0" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} /></td><td></td>
               </tr>
               {used > 0 && <tr><td colSpan="3" className="num muted">Loyalty points redeemed</td><td className="num">− {inr(used)}</td><td></td></tr>}
-              <tr className="total"><td colSpan="3" className="num">Total</td><td className="num">{inr(amount)}</td><td></td></tr>
+              <tr className="total"><td className="num" style={{ textAlign: 'left' }}>Total qty</td><td className="num">{lines.reduce((t, l) => t + Number(l.qty || 0), 0)}</td><td className="num">Total</td><td className="num">{inr(amount)}</td><td></td></tr>
             </tbody>
           </table>
         )}
@@ -578,6 +585,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           )}
         </div>
       )}
+      <div className="pay-mode-row">
+        <span className="small"><b>Paid by</b></span>
+        {[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['card', '💳 Card'], ['split', 'Cash + UPI']].map(([k, l]) => (
+          <button type="button" key={k} className={`chip ${payMode === k ? 'on' : ''}`} onClick={() => setPayMode(k)}>{l}</button>
+        ))}
+        {payMode === 'split' && <label className="inline">Cash part ₹<input type="number" min="0" style={{ width: 110 }} value={cashPart} onChange={(e) => setCashPart(e.target.value)} /></label>}
+      </div>
       <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>
       {!fullPaid && (
         <label>Amount paid (₹)<input type="number" min="0" step="0.01" value={f.paid_amount} onChange={set('paid_amount')} /></label>
@@ -591,7 +605,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 || used > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">{lines.length > 0 && <><b>{lines.reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b> · </>}Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 || used > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
@@ -677,6 +691,7 @@ function Receipt({ bill, c, shop, innerRef, small }) {
         </tbody>
       </table>
       <div className="r-totals">
+        <div>Total qty</div><div><b>{(ok && items.length ? items : [{ qty: 1 }]).reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b></div>
         {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
         {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
         {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
@@ -724,6 +739,7 @@ function ThermalReceipt({ bill, c, shop, shift = 0 }) {
           </div>
         ))}
         <div className="t-hr" />
+        <div className="t-row"><b>Total qty</b><b>{(items.length ? items : [{ qty: 1 }]).reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b></div>
         {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
         {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
         {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
