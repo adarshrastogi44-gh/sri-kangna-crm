@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ErrorBox, Loading, Modal, PinInput } from '../components';
-import { getWaMode, setWaMode, DEFAULT_TERMS, hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
+import { downloadCSV, fetchAll, getWaMode, setWaMode, DEFAULT_TERMS, hasDeletePin, loadSettings, must, pinOwnerInfo, resetDeletePin, sendPinResetCode, setDeletePin, verifyPinResetCode } from '../utils';
 import { supabase } from '../supabase';
 
 export default function Settings() {
@@ -51,9 +51,70 @@ export default function Settings() {
           </div>
         </form>
       </section>
+      <BackupCard />
       <WhatsAppCard />
       <PinCard />
     </>
+  );
+}
+
+const BACKUP_TABLES = [
+  ['customers', 'Customers'], ['bills', 'Bills'], ['visits', 'Visits'], ['followups', 'Follow-ups'], ['products', 'Items'],
+  ['rentals', 'Jewellery rent'], ['expenses', 'Expenses'], ['parties', 'Parties'], ['party_entries', 'Party purchases & payments'],
+  ['staff', 'Staff'], ['staff_attendance', 'Attendance'], ['staff_breaks', 'Breaks'], ['staff_advances', 'Advances & rewards'], ['staff_payments', 'Salary paid'],
+  ['shop_settings', 'Shop settings'],
+];
+const stamp = () => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
+
+function BackupCard() {
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const [last, setLast] = useState(() => { try { return localStorage.getItem('sk-last-backup') || ''; } catch { return ''; } });
+  const loadAll = async () => {
+    const data = {}; const counts = [];
+    for (const [t, label] of BACKUP_TABLES) {
+      setBusy(`Reading ${label}…`);
+      try { data[t] = await fetchAll(() => supabase.from(t).select('*'), { fresh: true }); counts.push(`${label} ${data[t].length}`); } catch { /* table not set up yet */ }
+    }
+    return { data, counts };
+  };
+  const full = async () => {
+    try {
+      const { data, counts } = await loadAll();
+      const blob = new Blob([JSON.stringify({ app: 'Sri Kangna CRM', made_at: new Date().toISOString(), tables: data }, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `sri-kangna-backup_${stamp()}.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      const when = new Date().toLocaleString('en-IN'); setLast(when); try { localStorage.setItem('sk-last-backup', when); } catch { /* ignore */ }
+      setMsg(`✓ Backup downloaded — ${counts.join(' · ')}`);
+    } catch (e) { setMsg(`Backup failed: ${e.message}`); }
+    setBusy('');
+  };
+  const excel = async () => {
+    try {
+      const { data } = await loadAll();
+      for (const [t, label] of BACKUP_TABLES) {
+        const rows = data[t];
+        if (!rows || !rows.length) continue;
+        const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+        downloadCSV(`${label}_${stamp()}.csv`, cols, rows.map((r) => cols.map((c) => (r[c] !== null && typeof r[c] === 'object' ? JSON.stringify(r[c]) : r[c]))));
+        await new Promise((ok) => setTimeout(ok, 400));
+      }
+      setMsg('✓ Excel (CSV) files downloaded — one per section. If Chrome asks “Download multiple files?”, click Allow.');
+    } catch (e) { setMsg(`Download failed: ${e.message}`); }
+    setBusy('');
+  };
+  return (
+    <section className="card narrow-card">
+      <h2>Backup</h2>
+      <p className="muted small">Download a copy of all your CRM data — customers, bills, visits, rent bookings, expenses, parties and staff. Keep it on your computer and in Google Drive. Do this once a week.</p>
+      <div className="actions">
+        <button className="btn primary" onClick={full} disabled={Boolean(busy)}>⬇ Download full backup</button>
+        <button className="btn" onClick={excel} disabled={Boolean(busy)}>⬇ Excel files (one per section)</button>
+      </div>
+      {busy && <p className="muted small">{busy}</p>}
+      {msg && <p className="notice small" style={{ marginTop: 10 }}>{msg}</p>}
+      {last && <p className="muted small">Last backup on this computer: {last}</p>}
+    </section>
   );
 }
 
