@@ -693,3 +693,4 @@ tr.cur-month td { background: #fff7e8; }
 
 .slow-box { margin: 14px auto 0; max-width: 420px; color: var(--text); }
 .slow-box p { margin: 0 0 10px; }
+.forgot-link { align-self: center; font-size: 14px; }

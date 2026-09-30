@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { warmUp, openWhatsApp } from './utils';
 import { supabase, configOk } from './supabase';
-import Login from './pages/Login';
+import Login, { RESET_FLAG, SetNewPassword } from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import CustomerDetail from './pages/CustomerDetail';
@@ -53,11 +53,12 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [customerId, setCustomerId] = useState(null);
   const [back, setBack] = useState('customers');
+  const [resetting, setResetting] = useState(() => { try { return sessionStorage.getItem(RESET_FLAG) === '1'; } catch { return false; } });
 
   useEffect(() => {
     if (!configOk) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setSession(s); try { if (sessionStorage.getItem(RESET_FLAG) === '1') setResetting(true); } catch { /* ignore */ } });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -96,6 +97,7 @@ export default function App() {
   }
   if (session === undefined) return <div className="center muted">Loading…</div>;
   if (!session) return <Login />;
+  if (resetting) return <SetNewPassword email={session.user.email} onDone={() => setResetting(false)} />;
 
   const go = (p) => { setPage(p); setCustomerId(null); window.scrollTo(0, 0); };
   const openCustomer = (id) => { setBack(page === 'customer' ? back : page); setCustomerId(id); setPage('customer'); window.scrollTo(0, 0); };
