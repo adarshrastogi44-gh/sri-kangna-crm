@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL;
+const directUrl = import.meta.env.VITE_SUPABASE_URL;
+// On the live site, talk to the database through our own address (…vercel.app/sb).
+// Some internet providers in India block *.supabase.co — this way it works on every network.
+const onVercel = typeof window !== 'undefined' && /vercel\.app$/.test(window.location.hostname);
+const url = directUrl && onVercel ? `${window.location.origin}/sb` : directUrl;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Every request gives up after 25 seconds instead of waiting forever
@@ -16,7 +20,7 @@ export const supabase = configOk
   ? createClient(url, key, {
     // With the CRM open in more than one tab, the browser's login "lock" can get stuck and pages stay on "Loading…".
     // Skipping that lock fixes it (each tab still keeps you signed in).
-    auth: { persistSession: true, autoRefreshToken: true, lock: async (_name, _timeout, fn) => fn() },
+    auth: { storageKey: 'sk-crm-auth', persistSession: true, autoRefreshToken: true, lock: async (_name, _timeout, fn) => fn() },
     global: { fetch: fetchWithTimeout },
   })
   : null;
