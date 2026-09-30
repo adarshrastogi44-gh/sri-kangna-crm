@@ -630,9 +630,8 @@ function Receipt({ bill, c, shop, innerRef, small }) {
     <div className={`receipt${small ? ' small' : ''}`} ref={innerRef}>
       <div className="r-top">
         <div className="r-brand">
-          <img src="/logo.png" alt="" className="r-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+          <div className="r-sri">Sri</div>
           <div>
-            <div className="r-shop">{shop?.shop_name || 'Sri Kangna'}</div>
             {shop?.address && <div className="r-addr">{shop.address}</div>}
             {shop?.phone && <div className="r-addr">Phone: {shop.phone}</div>}
           </div>
@@ -695,8 +694,7 @@ function ThermalReceipt({ bill, c, shop, shift = 0 }) {
       {/* No fixed page height: the bill starts at the very top of the roll and the printer cuts right after it */}
       <style>{`@page { margin: 0; } @media print { .thermal { margin-left: ${shift}mm !important; } }`}</style>
       <div className="thermal">
-        <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.src = '/logo.png'; e.currentTarget.onerror = null; }} />
-        <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+        <div className="t-sri">Sri</div>
         {shop?.address && <div className="t-c">{shop.address}</div>}
         {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
         <div className="t-title">ESTIMATE</div>

@@ -367,8 +367,7 @@ function RentPrint({ r, onClose, autoPrint }) {
 export function RentSlip({ r, shop }) {
   return (
       <div className="thermal rent-slip">
-      <img src="/logo-bw.png" alt="" className="t-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-      <div className="t-shop">{shop?.shop_name || 'Sri Kangna'}</div>
+      <div className="t-sri">Sri</div>
       {shop?.address && <div className="t-c">{shop.address}</div>}
       {shop?.phone && <div className="t-c">Ph: {shop.phone}</div>}
       <div className="t-title">JEWELLERY ON RENT</div>

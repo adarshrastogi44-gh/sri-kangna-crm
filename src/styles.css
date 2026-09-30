@@ -674,3 +674,9 @@ tr.cur-month td { background: #fff7e8; }
 .day-total { border-color: #f3c1cf !important; background: linear-gradient(135deg, #fff, #fde9ef) !important; }
 .day-total .stat-value { font-size: 26px; color: var(--brand); }
 .bills-h { margin: 18px 0 10px; }
+
+/* Bill header: only "Sri" (no logo) */
+.t-sri { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-size: 30px; font-weight: 700; line-height: 1.1; margin-bottom: 2px; }
+.r-sri { font-family: Georgia, 'Times New Roman', serif; font-size: 34px; font-weight: 700; color: #c93a6c; line-height: 1; }
+.receipt.small .r-sri { font-size: 22px; }
+.receipt.small .r-brand { flex-direction: column; gap: 2px; text-align: center; }
