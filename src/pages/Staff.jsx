@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, DateInput, Empty, ErrorBox, Loading, Modal, MonthPicker } from '../components';
-import { fetchAll, fmtDate, inr, monthKey, monthLabel, monthRange, today } from '../utils';
+import { Badge, DateInput, Empty, ErrorBox, Loading, Modal, MonthPicker, PinInput } from '../components';
+import { checkStaffPin, fetchAll, fmtDate, hasStaffPin, inr, monthKey, monthLabel, monthRange, pinOwnerInfo, resetStaffPin, sendPinResetCode, setStaffPin, today, verifyPinResetCode } from '../utils';
 
 // ---------- small time helpers ----------
 const pad = (n) => String(n).padStart(2, '0');
@@ -55,7 +55,8 @@ export function salaryFor(s, atts, monthAdv, monthPays, allAdv = monthAdv, allPa
   const paid = sum(monthPays);
   const cut = sum(monthPays, () => true, 'adv_cut');
   const left = Math.max(0, Math.round(earned - paid - cut));
-  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, advBalance, paid, cut, left, balance: left, toPay: Math.max(0, left - Math.max(0, advBalance)), advAfter: Math.max(0, advBalance - left) };
+  const fullyPaid = earned > 0 && left === 0 && paid + cut > 0;
+  return { present: count('present'), half, absent, leave: count('leave'), deduction, earned, given, returned, rewards, advBalance, paid, cut, left, fullyPaid, opening: advBalance - given + returned + cut, balance: left, toPay: Math.max(0, left - Math.max(0, advBalance)), advAfter: Math.max(0, advBalance - left) };
 }
 
 async function loadMonth(month) {
@@ -71,7 +72,10 @@ async function loadMonth(month) {
   const inMonth = (ts) => { const t = new Date(ts).getTime(); return t >= new Date(a0).getTime() && t < new Date(a1).getTime(); };
   const advances = allAdv.filter((a) => inMonth(a.given_at));
   const payments = allPays.filter((p) => p.month === month);
-  return { staff, atts, breaks, advances, payments, allAdv, allPays };
+  // Advance balance is worked out up to the END of the chosen month (later months are not counted)
+  const advTill = allAdv.filter((a) => new Date(a.given_at).getTime() < new Date(a1).getTime());
+  const paysTill = allPays.filter((p) => (p.month || '') <= month);
+  return { staff, atts, breaks, advances, payments, allAdv: advTill, allPays: paysTill };
 }
 
 const byStaff = (list, id) => list.filter((x) => x.staff_id === id);
@@ -83,63 +87,283 @@ const AdvAmount = ({ a }) => (isReturn(a) ? <span className="adv-ret">− {inr(a
 const AdvType = ({ a }) => (isReturn(a) ? <Badge tone="green">↩ Returned</Badge> : <Badge tone="amber">Advance</Badge>);
 const ymKey = (ts) => { const x = new Date(ts); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}`; };
 
-// Every month's advances (given, returned, still due) — for all staff in the list, or one person
-function MonthlyAdvances({ staffList, staffId, current, onPick }) {
-  const [all, setAll] = useState(null);
-  const [pays, setPays] = useState([]);
+// ---------- Month-by-month statement: salary + advances, a separate calculation for every month ----------
+const addMonth = (m, n) => { const [y, mo] = m.split('-').map(Number); const x = new Date(y, mo - 1 + n, 1); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}`; };
+function monthsFrom(a, b) { const out = []; for (let m = a; m <= b && out.length < 36; m = addMonth(m, 1)) out.push(m); return out; }
+
+export function monthlyStatement(s, atts, advs, pays, nowMonth = monthKey()) {
+  const mine = (l) => l.filter((x) => x.staff_id === s.id);
+  const A = mine(atts), V = mine(advs), P = mine(pays);
+  const recMonths = [...V.map((a) => ymKey(a.given_at)), ...P.map((p) => p.month), ...A.map((a) => a.work_date.slice(0, 7))].filter(Boolean).sort();
+  // Start from the first month that has an entry in the CRM (not before joining)
+  let start = recMonths[0] || nowMonth;
+  if (s.join_date && s.join_date.slice(0, 7) > start) start = s.join_date.slice(0, 7);
+  if (start > nowMonth) start = nowMonth;
+  const end = s.active ? nowMonth : (recMonths[recMonths.length - 1] || start);
+  let months = monthsFrom(start, end);
+  if (months.length > 24) months = months.slice(-24);
+  return months.map((m) => {
+    const endTs = new Date(`${monthRange(m)[1]}T00:00:00`).getTime();
+    const x = salaryFor(
+      s,
+      A.filter((a) => a.work_date.startsWith(m)),
+      V.filter((a) => ymKey(a.given_at) === m),
+      P.filter((p) => p.month === m),
+      V.filter((a) => new Date(a.given_at).getTime() < endTs),
+      P.filter((p) => (p.month || '') <= m),
+    );
+    return { month: m, ...x };
+  });
+}
+
+const statusOf = (r, current) => {
+  if (r.fullyPaid) return <Badge tone="green">✓ Paid</Badge>;
+  if (r.paid + r.cut > 0) return <Badge tone="amber">Part paid</Badge>;
+  if (!(r.earned > 0)) return <span className="muted small">—</span>;
+  return r.month >= monthKey() ? <Badge>Not paid</Badge> : <Badge tone="red">Pending</Badge>;
+};
+
+function MonthlyStatement({ staffList, staffId, current, onPick }) {
+  const [data, setData] = useState(null);
   useEffect(() => {
-    fetchAll(() => supabase.from('staff_advances').select('*').order('given_at', { ascending: false })).then(setAll).catch(() => setAll([]));
-    fetchAll(() => supabase.from('staff_payments').select('*')).then(setPays).catch(() => setPays([]));
+    Promise.all([
+      fetchAll(() => supabase.from('staff_attendance').select('staff_id,work_date,status')),
+      fetchAll(() => supabase.from('staff_advances').select('*').order('given_at')),
+      fetchAll(() => supabase.from('staff_payments').select('*')),
+    ]).then(([atts, advs, pays]) => setData({ atts, advs, pays })).catch(() => setData({ atts: [], advs: [], pays: [] }));
   }, [staffId, current]);
-  if (!all) return null;
-  const ids = new Set(staffId ? [staffId] : staffList.map((s) => s.id));
-  const mine = all.filter((a) => ids.has(a.staff_id) && notReward(a));
-  const months = {};
-  mine.forEach((a) => {
-    const k = ymKey(a.given_at);
-    const m = (months[k] ||= { given: 0, returned: 0, cut: 0, people: {} });
-    const amt = Number(a.amount || 0);
-    if (isReturn(a)) m.returned += amt; else m.given += amt;
-    const who = staffList.find((s) => s.id === a.staff_id)?.name || '—';
-    m.people[who] = (m.people[who] || 0) + (isReturn(a) ? -amt : amt);
-  });
-  pays.filter((p) => ids.has(p.staff_id) && Number(p.adv_cut)).forEach((p) => {
-    const m = (months[p.month] ||= { given: 0, returned: 0, cut: 0, people: {} });
-    const amt = Number(p.adv_cut);
-    m.cut += amt;
-    const who = staffList.find((s) => s.id === p.staff_id)?.name || '—';
-    m.people[who] = (m.people[who] || 0) - amt;
-  });
-  const rows = Object.entries(months).sort((a, b) => b[0].localeCompare(a[0]));
-  const tot = rows.reduce((t, [, m]) => ({ given: t.given + m.given, returned: t.returned + m.returned, cut: t.cut + m.cut }), { given: 0, returned: 0, cut: 0 });
-  const due = tot.given - tot.returned - tot.cut;
+  if (!data) return null;
+  const people = staffId ? staffList.filter((s) => s.id === staffId) : staffList;
+  const byMonth = {};
+  people.forEach((s) => monthlyStatement(s, data.atts, data.advs, data.pays).forEach((r) => {
+    const t = (byMonth[r.month] ||= { month: r.month, earned: 0, paid: 0, cut: 0, left: 0, opening: 0, given: 0, returned: 0, advBalance: 0, staff: 0, paidStaff: 0, rows: [] });
+    ['earned', 'paid', 'cut', 'left', 'opening', 'given', 'returned', 'advBalance'].forEach((k) => { t[k] += r[k]; });
+    if (r.earned > 0) t.staff += 1;
+    if (r.fullyPaid) t.paidStaff += 1;
+    t.rows.push(r);
+  }));
+  const rows = Object.values(byMonth).sort((a, b) => b.month.localeCompare(a.month));
+  const single = Boolean(staffId);
   return (
     <section className="card flush">
-      <div className="pad adv-head"><h2>Advances — month by month</h2><div className="adv-total">Total advance still due: <b>{inr(due)}</b></div></div>
-      {rows.length === 0 ? <Empty>No advances yet.</Empty> : (
-        <table>
-          <thead><tr><th>Month</th><th className="num">Given</th><th className="num">Returned</th><th className="num">Cut from salary</th><th className="num">Net</th>{!staffId && <th className="hide-sm">By staff (net)</th>}</tr></thead>
-          <tbody>
-            {rows.map(([k, m]) => (
-              <tr key={k} className={`click ${k === current ? 'cur-month' : ''}`} onClick={() => onPick?.(k)}>
-                <td><b>{monthLabel(k)}</b>{k === current && <span className="muted small"> · this month</span>}</td>
-                <td className="num">{inr(m.given)}</td>
-                <td className="num">{m.returned ? `− ${inr(m.returned)}` : '—'}</td>
-                <td className="num">{m.cut ? `− ${inr(m.cut)}` : '—'}</td>
-                <td className="num"><b>{inr(m.given - m.returned - m.cut)}</b></td>
-                {!staffId && <td className="hide-sm small">{Object.entries(m.people).filter(([, v]) => v).map(([n, v]) => `${n} ${inr(v)}`).join(' · ') || '—'}</td>}
-              </tr>
-            ))}
-            <tr className="total-row"><td><b>Still due (all months)</b></td><td className="num">{inr(tot.given)}</td><td className="num">{tot.returned ? `− ${inr(tot.returned)}` : '—'}</td><td className="num">{tot.cut ? `− ${inr(tot.cut)}` : '—'}</td><td className="num"><b>{inr(due)}</b></td>{!staffId && <td className="hide-sm" />}</tr>
-          </tbody>
-        </table>
+      <div className="pad adv-head">
+        <h2>Month by month — salary &amp; advances</h2>
+        <div className="muted small">Every month is worked out on its own. <b>Adv. b/f</b> = advance due at the start of the month · <b>Adv. cut</b> = cut from salary · <b>Adv. c/f</b> = advance still due at the end. Click a month to open it.</div>
+      </div>
+      {rows.length === 0 ? <Empty>Nothing yet.</Empty> : (
+        <div className="table-scroll">
+          <table className="month-stmt">
+            <thead><tr>
+              <th>Month</th><th className="num">Earned</th><th className="num">Paid</th><th className="num" title="Cut from advance">Adv. cut</th><th className="num">Salary left</th>
+              <th className="num hide-sm" title="Advance due at start of month">Adv. b/f</th><th className="num">Adv. given</th><th className="num hide-sm">Returned</th><th className="num" title="Advance due at end of month">Adv. c/f</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.month} className={`click ${m.month === current ? 'cur-month' : ''}`} onClick={() => onPick?.(m.month)}>
+                  <td><b>{monthLabel(m.month, true)}</b></td>
+                  <td className="num">{inr(m.earned)}</td>
+                  <td className="num">{m.paid ? inr(m.paid) : '—'}</td>
+                  <td className="num">{m.cut ? inr(m.cut) : '—'}</td>
+                  <td className="num"><b className={m.left > 0 ? 'to-pay' : ''}>{inr(m.left)}</b></td>
+                  <td className="num hide-sm">{inr(m.opening)}</td>
+                  <td className="num">{m.given ? `+ ${inr(m.given)}` : '—'}</td>
+                  <td className="num hide-sm">{m.returned ? `− ${inr(m.returned)}` : '—'}</td>
+                  <td className="num"><b className={m.advBalance > 0 ? 'adv-due' : ''}>{inr(m.advBalance)}</b></td>
+                  <td>{single ? statusOf(m.rows[0], current)
+                    : m.staff === 0 ? <span className="muted small">—</span>
+                      : m.paidStaff === m.staff ? <Badge tone="green">✓ Paid</Badge>
+                        : <Badge tone={m.paidStaff ? 'amber' : m.month >= monthKey() ? 'gray' : 'red'}>{m.paidStaff}/{m.staff} paid</Badge>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
 }
 const run = async (p) => { const { error } = await p; if (error) throw error; };
 
-export default function Staff() {
+// ---------- Password to open the Staff page ----------
+// Asked every time the Staff page is opened. Leaving the page (or 🔒 Lock) locks it again.
+export default function Staff(props) {
+  const [state, setState] = useState('check'); // check | setup | locked | open | error
+  const [err, setErr] = useState(null);
+  const [modal, setModal] = useState(null);
+  useEffect(() => { hasStaffPin().then((h) => setState(h ? 'locked' : 'setup')).catch((e) => { setErr(e); setState('error'); }); }, []);
+
+  if (state === 'open') {
+    return (
+      <>
+        <StaffPage {...props} lockBar={(
+          <span className="lock-bar">
+            <button className="btn small ghost" onClick={() => setState('locked')} title="Lock the Staff page">🔒 Lock</button>
+            <button className="link small" onClick={() => setModal('change')}>Change password</button>
+          </span>
+        )} />
+        {modal === 'change' && <Modal title="Change staff password" onClose={() => setModal(null)}><ChangeStaffPin onDone={() => setModal(null)} onCancel={() => setModal(null)} /></Modal>}
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="page-head"><h1>Staff</h1></div>
+      <div className="lock-wrap">
+        <div className="card lock-card">
+          <div className="lock-icon">🔒</div>
+          {state === 'check' && <Loading />}
+          {state === 'error' && (
+            <>
+              <h2>One-time setup needed</h2>
+              <p className="muted">To put a password on the Staff page, open <b>Supabase → SQL Editor → New query</b>, paste <code>staff-lock-setup.sql</code> and click <b>Run</b>. Then refresh this page.</p>
+              <ErrorBox error={err} />
+            </>
+          )}
+          {state === 'setup' && <SetStaffPin onDone={() => setState('open')} />}
+          {state === 'locked' && <UnlockStaff onOpen={() => setState('open')} onForgot={() => setModal('forgot')} />}
+        </div>
+      </div>
+      {modal === 'forgot' && <Modal title="Reset staff password" onClose={() => setModal(null)}><ForgotStaffPin onDone={() => { setModal(null); setState('open'); }} /></Modal>}
+    </>
+  );
+}
+
+function UnlockStaff({ onOpen, onForgot }) {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const go = async (p = pin) => {
+    if (p.length !== 4 || busy) return;
+    setBusy(true); setMsg('');
+    try {
+      if (await checkStaffPin(p)) onOpen();
+      else { setMsg('Wrong password. Try again.'); setPin(''); }
+    } catch (e) { setMsg(e.message || String(e)); setPin(''); }
+    setBusy(false);
+  };
+  return (
+    <form className="form" onSubmit={(e) => { e.preventDefault(); go(); }}>
+      <h2>Staff page is locked</h2>
+      <p className="muted small">Enter the 4-digit staff password to see attendance, salary and advances.</p>
+      <PinInput value={pin} autoFocus onChange={(v) => { setPin(v); setMsg(''); if (v.length === 4) go(v); }} />
+      {msg && <div className="error-text">{msg}</div>}
+      <button className="btn primary" disabled={busy || pin.length !== 4}>{busy ? 'Checking…' : 'Open Staff page'}</button>
+      <button type="button" className="link small" onClick={onForgot}>Forgot password?</button>
+    </form>
+  );
+}
+
+function SetStaffPin({ onDone }) {
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const save = async (e) => {
+    e.preventDefault();
+    if (a !== b) { setErr(new Error('The two passwords do not match.')); return; }
+    setBusy(true); setErr(null);
+    try { await setStaffPin(null, a); onDone(); } catch (x) { setErr(x); setBusy(false); }
+  };
+  return (
+    <form className="form" onSubmit={save}>
+      <h2>Set a password for the Staff page</h2>
+      <p className="muted small">Choose a 4-digit password. It will be asked every time the Staff page is opened. Keep it different from the bill delete PIN if staff know that one.</p>
+      <label>New password<PinInput value={a} autoFocus onChange={setA} /></label>
+      <label>Type it again<PinInput value={b} onChange={setB} /></label>
+      <ErrorBox error={err} />
+      <button className="btn primary" disabled={busy || a.length !== 4 || b.length !== 4}>{busy ? 'Saving…' : 'Set password'}</button>
+    </form>
+  );
+}
+
+function ChangeStaffPin({ onDone, onCancel }) {
+  const [f, setF] = useState({ old: '', a: '', b: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [ok, setOk] = useState(false);
+  const save = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (f.a !== f.b) { setErr(new Error('The two new passwords do not match.')); return; }
+    setBusy(true); setErr(null);
+    try { await setStaffPin(f.old, f.a); setOk(true); setTimeout(onDone, 900); } catch (x) { setErr(x); }
+    setBusy(false);
+  };
+  if (ok) return <p className="ok-text">✓ Staff password changed.</p>;
+  return (
+    <form className="form" onSubmit={save}>
+      <ErrorBox error={err} />
+      <label>Current password<PinInput value={f.old} autoFocus onChange={(v) => setF({ ...f, old: v })} /></label>
+      <div className="grid2">
+        <label>New password<PinInput value={f.a} onChange={(v) => setF({ ...f, a: v })} /></label>
+        <label>Type it again<PinInput value={f.b} onChange={(v) => setF({ ...f, b: v })} /></label>
+      </div>
+      <div className="actions" style={{ justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" disabled={busy || f.old.length !== 4 || f.a.length !== 4 || f.b.length !== 4}>{busy ? 'Saving…' : 'Change password'}</button>
+      </div>
+    </form>
+  );
+}
+
+function ForgotStaffPin({ onDone }) {
+  const [step, setStep] = useState('check');
+  const [email, setEmail] = useState('');
+  const [hint, setHint] = useState('');
+  const [code, setCode] = useState('');
+  const [p, setP] = useState({ a: '', b: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [{ data }, info] = await Promise.all([supabase.auth.getUser(), pinOwnerInfo().catch(() => ({ is_owner: true }))]);
+        setEmail(data?.user?.email || '');
+        setHint(info?.hint || '');
+        setStep(info?.is_owner === false ? 'notowner' : 'send');
+      } catch (e) { setErr(e); setStep('send'); }
+    })();
+  }, []);
+  const act = async (fn) => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e); } setBusy(false); };
+  return (
+    <div className="form">
+      <ErrorBox error={err} />
+      {step === 'check' && <Loading />}
+      {step === 'notowner' && <p>Only the owner can reset the staff password. Please sign in with the owner's account{hint ? <> (<b>{hint}</b>)</> : ''} and try again.</p>}
+      {step === 'send' && (
+        <>
+          <p>We will email a code to <b>{email}</b>.</p>
+          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn primary" disabled={busy || !email} onClick={() => act(async () => { await sendPinResetCode(email); setStep('code'); })}>{busy ? 'Sending…' : 'Send code'}</button>
+          </div>
+        </>
+      )}
+      {step === 'code' && (
+        <>
+          <p className="muted small">Check your email (and Spam) for the code and type it here.</p>
+          <label>Code<input className="pin-input code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus /></label>
+          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+            <button className="link" style={{ marginRight: 'auto' }} disabled={busy} onClick={() => act(() => sendPinResetCode(email))}>Send again</button>
+            <button className="btn primary" disabled={busy || code.length < 6} onClick={() => act(async () => { await verifyPinResetCode(email, code); setStep('new'); })}>{busy ? 'Checking…' : 'Verify code'}</button>
+          </div>
+        </>
+      )}
+      {step === 'new' && (
+        <>
+          <p className="ok-text">✓ Code verified. Choose a new 4-digit staff password.</p>
+          <div className="grid2">
+            <label>New password<PinInput value={p.a} autoFocus onChange={(v) => setP({ ...p, a: v })} /></label>
+            <label>Type it again<PinInput value={p.b} onChange={(v) => setP({ ...p, b: v })} /></label>
+          </div>
+          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn primary" disabled={busy || p.a.length !== 4 || p.a !== p.b} onClick={() => act(async () => { await resetStaffPin(p.a); onDone(); })}>{busy ? 'Saving…' : 'Save new password'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function StaffPage({ lockBar }) {
   const [tab, setTab] = useState('today');
   const [month, setMonth] = useState(monthKey());
   const [day, setDay] = useState(today());
@@ -186,7 +410,7 @@ export default function Staff() {
   return (
     <>
       <div className="page-head">
-        <h1>Staff</h1>
+        <h1>Staff {lockBar}</h1>
         <div className="place-switch">
           <button className={place === 'shop' ? 'on' : ''} onClick={() => setPlace('shop')}>🏬 Shop staff <span>{count('shop')}</span></button>
           <button className={place === 'home' ? 'on' : ''} onClick={() => setPlace('home')}>🏠 Home staff <span>{count('home')}</span></button>
@@ -299,16 +523,17 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
   const tot = (k) => rows.reduce((t, r) => t + r.x[k], 0);
   return (
     <>
-      <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Day rate = salary ÷ 30 · <b>Absent</b> cuts 1 day, <b>Half day</b> ½ day. <b>Advance balance</b> is the total advance still due from all months. When you pay less salary, the difference is cut from the advance balance.</p>
+      <p className="muted small"><b>{place === 'home' ? '🏠 Home staff' : '🏬 Shop staff'}</b> · Salary for {monthLabel(month)}. Day rate = salary ÷ 30 · <b>Absent</b> cuts 1 day, <b>Half day</b> ½ day. Each month is worked out separately. <b>Advance balance</b> is the advance still due at the end of this month. When you pay less salary, the difference is cut from the advance balance.</p>
       <div className="stats">
         <div className="stat"><div className="stat-label">Salary earned · {monthLabel(month, true)}</div><div className="stat-value">{inr(tot('earned'))}</div></div>
         <div className="stat"><div className="stat-label">Salary left to pay (after advance)</div><div className="stat-value">{inr(tot('toPay'))}</div><div className="stat-sub">salary left {inr(tot('left'))} − advance {inr(tot('advBalance'))}</div></div>
-        <div className="stat warn"><div className="stat-label">Total advance balance</div><div className="stat-value">{inr(tot('advBalance'))}</div><div className="stat-sub">still due from staff (all months)</div></div>
+        <div className="stat"><div className="stat-label">Salary paid · {monthLabel(month, true)}</div><div className="stat-value">{rows.filter((r) => r.x.fullyPaid).length} of {rows.filter((r) => r.x.earned > 0).length}</div><div className="stat-sub">staff fully paid</div></div>
+        <div className="stat warn"><div className="stat-label">Advance balance · end of {monthLabel(month, true)}</div><div className="stat-value">{inr(tot('advBalance'))}</div><div className="stat-sub">still due from staff</div></div>
       </div>
       <section className="card flush">
         {rows.length === 0 ? <Empty>No staff yet.</Empty> : (
           <table>
-            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Earned</th><th className="num">Paid</th><th className="num">Cut from advance</th><th className="num">Advance balance</th><th className="num">To pay (after advance)</th><th></th></tr></thead>
+            <thead><tr><th>Staff</th><th className="num">Salary</th><th className="num">Absent / Half</th><th className="num">Earned</th><th className="num">Paid</th><th className="num">Adv. cut</th><th className="num">Adv. balance</th><th className="num">To pay</th><th></th></tr></thead>
             <tbody>
               {rows.map(({ s, x }) => (
                 <tr key={s.id}>
@@ -319,12 +544,14 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
                   <td className="num">{x.paid ? inr(x.paid) : '—'}</td>
                   <td className="num">{x.cut ? inr(x.cut) : '—'}</td>
                   <td className="num"><b className={x.advBalance > 0 ? 'adv-due' : ''}>{inr(x.advBalance)}</b></td>
-                  <td className="num"><b className="to-pay">{inr(x.toPay)}</b><div className="muted small">{inr(x.left)} − {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</div></td>
+                  <td className="num">{x.fullyPaid ? <b className="ok-text">✓ Paid</b> : <><b className="to-pay">{inr(x.toPay)}</b><div className="muted small">{inr(x.left)} − {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</div></>}</td>
                   <td className="row-actions sal-actions">
                     <button className="link" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
                     <button className="link" onClick={() => setModal({ ret: { staff: s } })}>↩ Return</button>
                     <button className="link" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
-                    <button className="link" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>Pay</button>
+                    {x.fullyPaid
+                      ? <Badge tone="green">✓ Salary paid</Badge>
+                      : <button className="link strong" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>Pay{x.paid + x.cut > 0 ? ' rest' : ''}</button>}
                   </td>
                 </tr>
               ))}
@@ -347,7 +574,7 @@ function SalaryTable({ d, month, onOpen, setModal, place, onMonth }) {
         </section>
       )}
       <RewardsCard rewards={d.advances.filter((a) => isReward(a) && d.staff.some((s) => s.id === a.staff_id))} staffList={d.staff} month={month} />
-      <MonthlyAdvances staffList={d.staff} current={month} onPick={onMonth} />
+      <MonthlyStatement staffList={d.staff} current={month} onPick={onMonth} />
       
     </>
   );
@@ -404,7 +631,9 @@ function StaffDetail({ staffId, onBack }) {
           <button className="btn" onClick={() => setModal({ advance: { staff: s } })}>+ Advance</button>
           <button className="btn" onClick={() => setModal({ ret: { staff: s } })}>↩ Advance returned</button>
           <button className="btn" onClick={() => setModal({ reward: { staff: s } })}>🎁 Reward</button>
-          <button className="btn primary" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>Pay salary</button>
+          {x.fullyPaid
+            ? <span className="paid-pill">✓ Salary paid · {monthLabel(month, true)}</span>
+            : <button className="btn primary" onClick={() => setModal({ pay: { staff: s, left: x.left, advBalance: x.advBalance } })}>{x.paid + x.cut > 0 ? 'Pay rest of salary' : 'Pay salary'}</button>}
         </div>
       </div>
       <div className="stats">
@@ -412,9 +641,9 @@ function StaffDetail({ staffId, onBack }) {
         <div className="stat"><div className="stat-label">Attendance · {monthLabel(month, true)}</div><div className="stat-value">{x.present + x.half}</div><div className="stat-sub">present {x.present} · half {x.half} · absent {x.absent} · leave {x.leave}</div></div>
         <div className="stat"><div className="stat-label">Hours worked</div><div className="stat-value">{dur(totalWorked)}</div></div>
         <div className="stat"><div className="stat-label">Earned</div><div className="stat-value">{inr(x.earned)}</div><div className="stat-sub">{x.deduction ? `cut ${inr(x.deduction)} for absence` : 'no cut'}</div></div>
-        <div className="stat warn"><div className="stat-label">Advance balance (all months)</div><div className="stat-value">{inr(x.advBalance)}</div><div className="stat-sub">this month: given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}{x.cut ? ` · cut ${inr(x.cut)}` : ''}</div></div>
+        <div className="stat warn"><div className="stat-label">Advance balance · end of {monthLabel(month, true)}</div><div className="stat-value">{inr(x.advBalance)}</div><div className="stat-sub">this month: given {inr(x.given)}{x.returned ? ` · returned ${inr(x.returned)}` : ''}{x.cut ? ` · cut ${inr(x.cut)}` : ''}</div></div>
         <div className="stat reward-stat"><div className="stat-label">🎁 Rewards</div><div className="stat-value">{inr(x.rewards)}</div><div className="stat-sub">gifts · not cut from salary</div></div>
-        <div className="stat to-pay-stat"><div className="stat-label">Salary left to pay (after advance)</div><div className="stat-value">{inr(x.toPay)}</div><div className="stat-sub">salary left {inr(x.left)} − advance {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</div></div>
+        <div className={`stat to-pay-stat ${x.fullyPaid ? 'paid-stat' : ''}`}><div className="stat-label">{x.fullyPaid ? `Salary for ${monthLabel(month, true)}` : 'Salary left to pay (after advance)'}</div><div className="stat-value">{x.fullyPaid ? '✓ Paid' : inr(x.toPay)}</div><div className="stat-sub">{x.fullyPaid ? `paid ${inr(x.paid)}${x.cut ? ` + cut from advance ${inr(x.cut)}` : ''}` : <>salary left {inr(x.left)} − advance {inr(Math.max(0, x.advBalance))}{x.advAfter > 0 ? ` · ${inr(x.advAfter)} advance stays` : ''}</>}</div></div>
       </div>
 
       <div className="cols">
@@ -445,7 +674,7 @@ function StaffDetail({ staffId, onBack }) {
       </div>
 
       <RewardsCard rewards={rws} staffList={d.staff} month={month} single onDelete={(a) => del('staff_advances', a.id, 'reward')} />
-      <MonthlyAdvances staffList={d.staff} staffId={s.id} current={month} onPick={setMonth} />
+      <MonthlyStatement staffList={d.staff} staffId={s.id} current={month} onPick={setMonth} />
 
       <section className="card flush">
         <h2 className="pad">Daily attendance · {monthLabel(month)}</h2>

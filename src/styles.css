@@ -594,7 +594,7 @@ tr.total-row td { background: rgba(255, 240, 244, .7); border-top: 2px solid var
 tr.cur-month td { background: #fff7e8; }
 .reward-stat { border-color: #cfe9d9 !important; background: linear-gradient(135deg, #f2fbf5, #e6f6ec) !important; }
 .reward-card h2 .small { font-weight: 400; }
-.sal-actions { white-space: normal !important; min-width: 250px; line-height: 1.9; }
+.sal-actions { white-space: normal !important; min-width: 170px; line-height: 1.8; text-align: right; }
 .sal-actions .link { margin-left: 10px; }
 .adv-due { color: #b35c00; }
 .adv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; }
@@ -713,3 +713,17 @@ tr.cur-month td { background: #fff7e8; }
 .cash-diff.more { background: var(--blue-bg); color: var(--blue); }
 .cash-diff.less { background: var(--red-bg); color: var(--red); }
 @media (max-width: 900px) { .cash-hero { grid-template-columns: 1fr 1fr; } }
+
+/* ---- Staff page lock ---- */
+.lock-bar { display: inline-flex; gap: 10px; align-items: center; margin-left: 10px; vertical-align: middle; font-size: 14px; font-weight: 400; }
+.lock-wrap { display: flex; justify-content: center; padding: 40px 0; }
+.lock-card { width: 100%; max-width: 380px; text-align: center; padding: 28px 26px; }
+.lock-card .form { align-items: stretch; }
+.lock-card .pin-input { margin: 4px auto; display: block; }
+.lock-icon { font-size: 40px; margin-bottom: 6px; }
+.error-text { color: #b42318; font-weight: 600; font-size: 14px; }
+.paid-pill { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; background: #e7f6ec; color: #1a7f45; font-weight: 700; border: 1px solid #b7e3c6; }
+.paid-stat .stat-value { color: #1a7f45; }
+.table-scroll { overflow-x: auto; }
+.month-stmt td, .month-stmt th { white-space: nowrap; }
+.sal-actions .badge { margin-left: 10px; }

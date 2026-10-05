@@ -332,6 +332,28 @@ export async function resetDeletePin(newPin) {
   if (error) throw recErr(error);
 }
 
+// ---------- Staff page password (see staff-lock-setup.sql) ----------
+const staffLockMsg = 'The staff password is not set up yet. Run staff-lock-setup.sql in Supabase → SQL Editor.';
+const slErr = (error) => new Error(/function .*does not exist|Could not find the function/i.test(error.message) ? staffLockMsg : error.message);
+export async function hasStaffPin() {
+  const { data, error } = await supabase.rpc('has_staff_pin');
+  if (error) throw slErr(error);
+  return Boolean(data);
+}
+export async function setStaffPin(oldPin, newPin) {
+  const { error } = await supabase.rpc('set_staff_pin', { old_pin: oldPin || null, new_pin: newPin });
+  if (error) throw slErr(error);
+}
+export async function checkStaffPin(pin) {
+  const { data, error } = await supabase.rpc('check_staff_pin', { p_pin: pin });
+  if (error) throw slErr(error);
+  return data === true;
+}
+export async function resetStaffPin(newPin) {
+  const { error } = await supabase.rpc('reset_staff_pin', { new_pin: newPin });
+  if (error) throw slErr(error);
+}
+
 // ---------- Loyalty points: 5% of every bill amount (rounded down) ----------
 export const LOYALTY_RATE = 0.05;
 export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
