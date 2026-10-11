@@ -34,7 +34,9 @@ export default function Bills({ user, openCustomer }) {
   }, [month, tick]);
 
   const done = () => { setModal(null); setTick((t) => t + 1); };
-  const inView = rows ? (view === 'day' ? rows.filter((b) => b.bill_date === day) : rows) : [];
+  // Day view: first customer of the day on top, last customer at the bottom
+  const seq = (b) => b.created_at || '';
+  const inView = rows ? (view === 'day' ? rows.filter((b) => b.bill_date === day).sort((a, b) => seq(a).localeCompare(seq(b)) || Number(a.bill_no || 0) - Number(b.bill_no || 0)) : rows) : [];
   const shown = inView.filter((b) => filter === 'all' || (filter === 'due' ? dueOf(b) > 0 : b.payment_status === 'paid'));
   const dayRows = rows && view === 'month' ? Object.entries(rows.reduce((g, b) => { const k = b.bill_date; (g[k] ||= { n: 0, total: 0, paid: 0, due: 0 }); g[k].n += 1; g[k].total += Number(b.amount || 0); g[k].paid += Number(b.paid_amount || 0); g[k].due += dueOf(b); return g; }, {})).sort((a, b) => b[0].localeCompare(a[0])) : [];
   const openDay = (d) => { setDay(d); setView('day'); };

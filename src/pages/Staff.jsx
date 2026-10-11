@@ -183,6 +183,34 @@ function MonthlyStatement({ staffList, staffId, current, onPick }) {
   );
 }
 const run = async (p) => { const { error } = await p; if (error) throw error; };
+const noteMissing = (e) => /note/.test(e?.message || '') && /(column|schema cache)/i.test(e?.message || '');
+const BREAK_NOTE_SQL = 'To save break reasons, run break-note.sql once in Supabase → SQL Editor.';
+// Save a break row; if the "note" column is not added yet, save without it and warn once
+async function saveBreak(row, id) {
+  const write = (r) => (id ? supabase.from('staff_breaks').update(r).eq('id', id) : supabase.from('staff_breaks').insert(r));
+  const { error } = await write(row);
+  if (!error) return;
+  if ('note' in row && noteMissing(error)) {
+    const { note, ...rest } = row;
+    await run(write(rest));
+    if (note) alert(BREAK_NOTE_SQL);
+    return;
+  }
+  throw error;
+}
+const BREAK_REASONS = ['Lunch', 'Tea', 'Namaz / Puja', 'Bank work', 'Market / errand', 'Personal work', 'Phone call', 'Rest'];
+// Break list with reasons: "1:10–1:40 pm · Lunch"
+function BreakList({ list }) {
+  if (!list.length) return '—';
+  return (
+    <div className="break-list">
+      <div>{list.length} · {dur(breakMins(list))}</div>
+      {list.map((b) => (
+        <div key={b.id} className="muted small">{tm(b.break_start)}–{b.break_end ? tm(b.break_end) : 'now'}{b.note ? <> · <b className="break-why">{b.note}</b></> : ''}</div>
+      ))}
+    </div>
+  );
+}
 
 // ---------- Password to open the Staff page ----------
 // Asked every time the Staff page is opened. Leaving the page (or 🔒 Lock) locks it again.
@@ -449,9 +477,9 @@ function StaffPage({ lockBar }) {
                       return (
                         <tr key={s.id}>
                           <td><button className="link strong" onClick={() => setOpen(s.id)}>{s.name}</button>{s.role && <div className="muted small">{s.role}</div>}</td>
-                          <td><StatusTag s={att?.status} />{onBreak && <div><Badge tone="amber">On break since {tm(onBreak.break_start)}</Badge></div>}</td>
+                          <td><StatusTag s={att?.status} />{onBreak && <div><Badge tone="amber">On break since {tm(onBreak.break_start)}{onBreak.note ? ` · ${onBreak.note}` : ""}</Badge></div>}</td>
                           <td>{tm(att?.time_in)}</td>
-                          <td>{brs.length ? <>{brs.length} · {dur(breakMins(brs))}</> : '—'}</td>
+                          <td><BreakList list={brs} /></td>
                           <td>{tm(att?.time_out)}</td>
                           <td className="num">{dur(workedMins(att, brs))}</td>
                           <td className="row-actions staff-actions">
@@ -460,7 +488,7 @@ function StaffPage({ lockBar }) {
                             )}
                             {isToday && att?.time_in && !att?.time_out && (onBreak
                               ? <button className="btn small" onClick={() => act(() => run(supabase.from('staff_breaks').update({ break_end: now }).eq('id', onBreak.id)))}>End break</button>
-                              : <button className="btn small" onClick={() => act(() => run(supabase.from('staff_breaks').insert({ staff_id: s.id, work_date: day, break_start: now })))}>Start break</button>)}
+                              : <button className="btn small" onClick={() => setModal({ breakStart: { staff: s, date: day } })}>Start break</button>)}
                             {isToday && att?.time_in && !att?.time_out && (
                               <button className="btn small" onClick={() => act(async () => {
                                 if (onBreak) await run(supabase.from('staff_breaks').update({ break_end: now }).eq('id', onBreak.id));
@@ -690,7 +718,7 @@ function StaffDetail({ staffId, onBack }) {
                     <td>{fmtDate(day)} <span className="muted small">{dayName(day)}</span></td>
                     <td><StatusTag s={att?.status} /></td>
                     <td>{tm(att?.time_in)}</td>
-                    <td>{b.length ? `${b.length} · ${dur(breakMins(b))}` : '—'}</td>
+                    <td><BreakList list={b} /></td>
                     <td>{tm(att?.time_out)}</td>
                     <td className="num">{dur(workedMins(att, b))}</td>
                     <td className="row-actions"><button className="link" onClick={() => setModal({ dayEdit: { staff: s, date: day, att, breaks: b } })}>Edit</button></td>
@@ -739,6 +767,7 @@ function StaffModals({ modal, setModal, done, staffList, month }) {
   if (modal.reward) return <Modal title={`🎁 Reward · ${modal.reward.staff.name}`} onClose={close}><MoneyForm kind="reward" staff={modal.reward.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.ret) return <Modal title={`Advance returned · ${modal.ret.staff.name}`} onClose={close}><MoneyForm kind="return" staff={modal.ret.staff} onSaved={done} onCancel={close} /></Modal>;
   if (modal.pay) return <Modal title={`Pay salary · ${modal.pay.staff.name}`} onClose={close}><PayForm staff={modal.pay.staff} month={month} left={modal.pay.left} advBalance={modal.pay.advBalance} onSaved={done} onCancel={close} /></Modal>;
+  if (modal.breakStart) return <Modal title={`Start break · ${modal.breakStart.staff.name}`} onClose={close}><BreakStartForm {...modal.breakStart} onSaved={done} onCancel={close} /></Modal>;
   if (modal.dayEdit) return <Modal title={`${modal.dayEdit.staff.name} · ${fmtDate(modal.dayEdit.date)}`} onClose={close}><DayForm {...modal.dayEdit} onSaved={done} onCancel={close} /></Modal>;
   return null;
 }
@@ -876,7 +905,7 @@ function DayForm({ staff, date, att, breaks, onSaved, onCancel }) {
   const [tin, setTin] = useState(hhmm(att?.time_in));
   const [tout, setTout] = useState(hhmm(att?.time_out));
   const [notes, setNotes] = useState(att?.notes || '');
-  const [brs, setBrs] = useState(breaks.map((b) => ({ id: b.id, s: hhmm(b.break_start), e: hhmm(b.break_end) })));
+  const [brs, setBrs] = useState(breaks.map((b) => ({ id: b.id, s: hhmm(b.break_start), e: hhmm(b.break_end), note: b.note || '' })));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const working = status === 'present' || status === 'half';
@@ -892,9 +921,8 @@ function DayForm({ staff, date, att, breaks, onSaved, onCancel }) {
       const gone = breaks.filter((b) => !keep.some((k) => k.id === b.id));
       for (const b of gone) await run(supabase.from('staff_breaks').delete().eq('id', b.id));
       for (const b of keep) {
-        const row = { staff_id: staff.id, work_date: date, break_start: toTs(date, b.s), break_end: toTs(date, b.e) };
-        if (b.id) await run(supabase.from('staff_breaks').update(row).eq('id', b.id));
-        else await run(supabase.from('staff_breaks').insert(row));
+        const row = { staff_id: staff.id, work_date: date, break_start: toTs(date, b.s), break_end: toTs(date, b.e), note: (b.note || '').trim() || null };
+        await saveBreak(row, b.id);
       }
       onSaved();
     } catch (x) { setErr(x); setBusy(false); }
@@ -928,9 +956,11 @@ function DayForm({ staff, date, att, breaks, onSaved, onCancel }) {
               <div className="grid2 break-row" key={i}>
                 <label>Start<input type="time" value={b.s} onChange={(e) => setBrs(brs.map((y, j) => (j === i ? { ...y, s: e.target.value } : y)))} /></label>
                 <label>End<div className="break-end"><input type="time" value={b.e} onChange={(e) => setBrs(brs.map((y, j) => (j === i ? { ...y, e: e.target.value } : y)))} /><button type="button" className="link danger" onClick={() => setBrs(brs.filter((_, j) => j !== i))}>Remove</button></div></label>
+                <label className="break-note">Reason for break<input list="break-reasons" value={b.note} placeholder="e.g. Lunch, bank work" onChange={(e) => setBrs(brs.map((y, j) => (j === i ? { ...y, note: e.target.value } : y)))} /></label>
               </div>
             ))}
-            <button type="button" className="btn small" onClick={() => setBrs([...brs, { s: '', e: '' }])}>+ Add break</button>
+            <button type="button" className="btn small" onClick={() => setBrs([...brs, { s: '', e: '', note: '' }])}>+ Add break</button>
+            <datalist id="break-reasons">{BREAK_REASONS.map((r) => <option key={r} value={r} />)}</datalist>
           </div>
         </>
       )}
@@ -942,6 +972,29 @@ function DayForm({ staff, date, att, breaks, onSaved, onCancel }) {
           <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
+    </form>
+  );
+}
+
+function BreakStartForm({ staff, date, onSaved, onCancel }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    setBusy(true); setErr(null);
+    try {
+      await saveBreak({ staff_id: staff.id, work_date: date, break_start: new Date().toISOString(), note: note.trim() || null });
+      onSaved();
+    } catch (x) { setErr(x); setBusy(false); }
+  };
+  return (
+    <form className="form" onSubmit={submit}>
+      <ErrorBox error={err} />
+      <p className="muted small">Break starts now ({tm(new Date().toISOString())}). Why is {staff.name} taking a break?</p>
+      <div className="chips">{BREAK_REASONS.map((r) => <button type="button" key={r} className={`chip ${note === r ? 'on' : ''}`} onClick={() => setNote(r)}>{r}</button>)}</div>
+      <label>Reason / note<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Pick above or type a reason" autoFocus /></label>
+      <Buttons busy={busy} onCancel={onCancel} label="Start break" />
     </form>
   );
 }

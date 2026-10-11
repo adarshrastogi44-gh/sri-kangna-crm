@@ -79,3 +79,6 @@ alter table public.staff_payments drop constraint if exists staff_payments_amoun
 alter table public.staff_payments add constraint staff_payments_amount_check check (amount >= 0);
 -- (also needed if not run before)
 alter table public.staff_advances add column if not exists kind text not null default 'advance';
+
+-- Reason for each break
+alter table public.staff_breaks add column if not exists note text;

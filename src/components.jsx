@@ -605,7 +605,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">{lines.length > 0 && <><b>{lines.reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b> · </>}Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 || used > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">{lines.length > 0 && <><b>{lines.reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b> · </>}Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>

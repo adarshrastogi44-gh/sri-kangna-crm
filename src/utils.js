@@ -358,8 +358,9 @@ export async function resetStaffPin(newPin) {
 export const LOYALTY_RATE = 0.05;
 export const pointsFor = (amount) => Math.floor(Number(amount || 0) * LOYALTY_RATE);
 export const redeemedOf = (b) => Number(b.points_redeemed || 0);
-// A bill with any discount (manual discount or points redeemed) earns no points
-export const hasDiscount = (b) => redeemedOf(b) > 0 || /(^|\n)\s*\d+(\.\d+)?\s*[×x]\s*Discount\s*@/i.test(b.items || '');
+export const hasDiscount = (b) => /(^|\n)\s*\d+(\.\d+)?\s*[×x]\s*Discount\s*@/i.test(b.items || '');
+// A bill with a manual discount earns no points. Using loyalty points does NOT stop the bill earning points:
+// the bill earns 5% of the amount actually paid (after points used), for the next purchase.
 export const billPoints = (b) => (hasDiscount(b) ? 0 : pointsFor(b.amount));
 export const pointsEarned = (bills) => bills.reduce((s, b) => s + billPoints(b), 0);
 export const pointsUsed = (bills) => bills.reduce((s, b) => s + redeemedOf(b), 0);

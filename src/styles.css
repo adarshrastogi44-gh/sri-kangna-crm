@@ -727,3 +727,6 @@ tr.cur-month td { background: #fff7e8; }
 .table-scroll { overflow-x: auto; }
 .month-stmt td, .month-stmt th { white-space: nowrap; }
 .sal-actions .badge { margin-left: 10px; }
+.break-list { line-height: 1.5; }
+.break-why { color: var(--text, #333); font-weight: 600; }
+.break-row .break-note { grid-column: 1 / -1; }
