@@ -199,16 +199,34 @@ async function saveBreak(row, id) {
   throw error;
 }
 const BREAK_REASONS = ['Lunch', 'Tea', 'Namaz / Puja', 'Bank work', 'Market / errand', 'Personal work', 'Phone call', 'Rest'];
-// Break list with reasons: "1:10–1:40 pm · Lunch"
-function BreakList({ list }) {
+// Breaks: only a small "Breaks" button in the table; click it to see every break with time and reason
+function BreakList({ list, title }) {
+  const [open, setOpen] = useState(false);
   if (!list.length) return '—';
+  const total = breakMins(list);
   return (
-    <div className="break-list">
-      <div>{list.length} · {dur(breakMins(list))}</div>
-      {list.map((b) => (
-        <div key={b.id} className="muted small">{tm(b.break_start)}–{b.break_end ? tm(b.break_end) : 'now'}{b.note ? <> · <b className="break-why">{b.note}</b></> : ''}</div>
-      ))}
-    </div>
+    <>
+      <button type="button" className="break-btn" onClick={() => setOpen(true)} title="See break details">☕ Breaks <span>{list.length}</span></button>
+      {open && (
+        <Modal title={`Breaks${title ? ` · ${title}` : ''}`} onClose={() => setOpen(false)}>
+          <table className="break-table">
+            <thead><tr><th>#</th><th>Start</th><th>End</th><th className="num">Time</th><th>Reason</th></tr></thead>
+            <tbody>
+              {list.map((b, i) => (
+                <tr key={b.id}>
+                  <td>{i + 1}</td>
+                  <td>{tm(b.break_start)}</td>
+                  <td>{b.break_end ? tm(b.break_end) : <Badge tone="amber">On break</Badge>}</td>
+                  <td className="num">{dur(mins(b.break_start, b.break_end || new Date().toISOString()))}</td>
+                  <td>{b.note ? <b>{b.note}</b> : <span className="muted">—</span>}</td>
+                </tr>
+              ))}
+              <tr className="total-row"><td colSpan={3}><b>Total break time</b></td><td className="num"><b>{dur(total)}</b></td><td /></tr>
+            </tbody>
+          </table>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -477,9 +495,9 @@ function StaffPage({ lockBar }) {
                       return (
                         <tr key={s.id}>
                           <td><button className="link strong" onClick={() => setOpen(s.id)}>{s.name}</button>{s.role && <div className="muted small">{s.role}</div>}</td>
-                          <td><StatusTag s={att?.status} />{onBreak && <div><Badge tone="amber">On break since {tm(onBreak.break_start)}{onBreak.note ? ` · ${onBreak.note}` : ""}</Badge></div>}</td>
+                          <td><StatusTag s={att?.status} />{onBreak && <div><Badge tone="amber">On break since {tm(onBreak.break_start)}</Badge></div>}</td>
                           <td>{tm(att?.time_in)}</td>
-                          <td><BreakList list={brs} /></td>
+                          <td><BreakList list={brs} title={`${s.name} · ${day === today() ? 'Today' : fmtDate(day)}`} /></td>
                           <td>{tm(att?.time_out)}</td>
                           <td className="num">{dur(workedMins(att, brs))}</td>
                           <td className="row-actions staff-actions">
@@ -718,7 +736,7 @@ function StaffDetail({ staffId, onBack }) {
                     <td>{fmtDate(day)} <span className="muted small">{dayName(day)}</span></td>
                     <td><StatusTag s={att?.status} /></td>
                     <td>{tm(att?.time_in)}</td>
-                    <td><BreakList list={b} /></td>
+                    <td><BreakList list={b} title={`${s.name} · ${fmtDate(day)}`} /></td>
                     <td>{tm(att?.time_out)}</td>
                     <td className="num">{dur(workedMins(att, b))}</td>
                     <td className="row-actions"><button className="link" onClick={() => setModal({ dayEdit: { staff: s, date: day, att, breaks: b } })}>Edit</button></td>

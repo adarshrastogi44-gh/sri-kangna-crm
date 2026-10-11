@@ -730,3 +730,7 @@ tr.cur-month td { background: #fff7e8; }
 .break-list { line-height: 1.5; }
 .break-why { color: var(--text, #333); font-weight: 600; }
 .break-row .break-note { grid-column: 1 / -1; }
+.break-btn { border: 1px solid #f1c4d3; background: #fff5f8; color: #8a1d45; border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.break-btn:hover { background: #fde4ec; }
+.break-btn span { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 999px; background: #8a1d45; color: #fff; font-size: 11px; }
+.break-table { width: 100%; }
