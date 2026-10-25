@@ -367,6 +367,9 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
   const [payMode, setPayMode] = useState(bill?.pay_mode || 'cash');
   const [cashPart, setCashPart] = useState(bill?.cash_part ?? '');
+  // Cash & UPI both: two separate boxes; amount paid = cash + UPI
+  const [upiPart, setUpiPart] = useState(bill?.pay_mode === 'split' ? String(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0))) : '');
+  const [upiTouched, setUpiTouched] = useState(bill?.pay_mode === 'split');
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
   const [redeem, setRedeem] = useState(bill ? String(redeemedOf(bill) || '') : '');
@@ -404,7 +407,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const maxRedeem = Math.max(0, Math.min(available || 0, Math.floor(gross)));
   const used = Math.max(0, Math.min(Math.floor(Number(redeem || 0)), maxRedeem));
   const amount = Math.max(0, gross - used);
-  const paid = fullPaid ? amount : Number(f.paid_amount || 0);
+  const isSplit = payMode === 'split';
+  const paid = isSplit ? Number(cashPart || 0) + Number(upiPart || 0) : fullPaid ? amount : Number(f.paid_amount || 0);
   const status = statusFor(amount, paid);
 
   const ql = pick.q.trim().toLowerCase();
@@ -453,8 +457,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         notes: f.notes,
       });
       if (payMode === 'split') {
-        if (cashPart === '') throw new Error('Cash & UPI both: please type how much was paid in cash.');
-        if (Number(cashPart) > paid) throw new Error('Cash amount cannot be more than the amount paid.');
+        if (cashPart === '' && upiPart === '') throw new Error('Cash & UPI both: please type the cash and UPI amounts.');
       }
       row.pay_mode = payMode;
       row.cash_part = payMode === 'split' ? Number(cashPart || 0) : null;
@@ -598,16 +601,21 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       {payMode === 'split' && (
         <div className="split-box">
           <label>💵 Cash ₹<input type="number" min="0" placeholder="0" value={cashPart} autoFocus
-            onChange={(e) => setCashPart(e.target.value)} /></label>
+            onChange={(e) => {
+              const v = e.target.value;
+              setCashPart(v);
+              // Fill UPI with the rest of the bill, until you type in the UPI box yourself
+              if (!upiTouched) setUpiPart(v === '' ? '' : String(Math.max(0, amount - Number(v || 0))));
+            }} /></label>
           <span className="split-plus">+</span>
-          <label>📱 UPI ₹<input type="number" min="0" placeholder="0" value={cashPart === '' ? '' : Math.max(0, paid - Number(cashPart || 0))}
-            onChange={(e) => setCashPart(e.target.value === '' ? '' : String(Math.max(0, paid - Number(e.target.value || 0))))} /></label>
-          <span className="split-eq">= {inr(paid)} paid</span>
-          <div className="muted small split-help">Type the cash amount — the rest is counted as UPI automatically (or type the UPI amount).</div>
+          <label>📱 UPI ₹<input type="number" min="0" placeholder="0" value={upiPart}
+            onChange={(e) => { setUpiPart(e.target.value); setUpiTouched(true); }} /></label>
+          <span className="split-eq">= {inr(paid)} paid{amount > 0 && paid < amount ? <span className="split-due"> · {inr(amount - paid)} due</span> : ''}</span>
+          <div className="muted small split-help">Type the cash amount — UPI fills in with the rest of the bill. You can change the UPI amount too.</div>
         </div>
       )}
-      <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>
-      {!fullPaid && (
+      {!isSplit && <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>}
+      {!isSplit && !fullPaid && (
         <label>Amount paid (₹)<input type="number" min="0" step="0.01" value={f.paid_amount} onChange={set('paid_amount')} /></label>
       )}
       <div className="muted small">

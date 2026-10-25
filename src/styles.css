@@ -741,3 +741,4 @@ tr.cur-month td { background: #fff7e8; }
 .split-plus { font-size: 20px; font-weight: 700; padding-bottom: 8px; color: #8a1d45; }
 .split-eq { padding-bottom: 9px; font-weight: 700; }
 .split-help { flex-basis: 100%; }
+.split-due { color: #b42318; }
