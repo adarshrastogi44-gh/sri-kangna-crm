@@ -5,7 +5,7 @@ import { openWhatsApp, customerMap, addDays, billNo, billPoints, billText, custo
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
-    <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="overlay">{/* closes only with the × button, so a stray click outside never loses a bill */}
       <div className="modal" role="dialog" aria-label={title}>
         <div className="modal-head">
           <h3>{title}</h3>
@@ -452,8 +452,12 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         payment_status: status,
         notes: f.notes,
       });
+      if (payMode === 'split') {
+        if (cashPart === '') throw new Error('Cash & UPI both: please type how much was paid in cash.');
+        if (Number(cashPart) > paid) throw new Error('Cash amount cannot be more than the amount paid.');
+      }
       row.pay_mode = payMode;
-      if (payMode === 'split') row.cash_part = Number(cashPart || 0);
+      row.cash_part = payMode === 'split' ? Number(cashPart || 0) : null;
       if (redeemOk) row.points_redeemed = used;
       if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
@@ -587,11 +591,21 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <div className="pay-mode-row">
         <span className="small"><b>Paid by</b></span>
-        {[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['card', '💳 Card'], ['split', 'Cash + UPI']].map(([k, l]) => (
+        {[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['card', '💳 Card'], ['split', '💵 + 📱 Cash & UPI both']].map(([k, l]) => (
           <button type="button" key={k} className={`chip ${payMode === k ? 'on' : ''}`} onClick={() => setPayMode(k)}>{l}</button>
         ))}
-        {payMode === 'split' && <label className="inline">Cash part ₹<input type="number" min="0" style={{ width: 110 }} value={cashPart} onChange={(e) => setCashPart(e.target.value)} /></label>}
       </div>
+      {payMode === 'split' && (
+        <div className="split-box">
+          <label>💵 Cash ₹<input type="number" min="0" placeholder="0" value={cashPart} autoFocus
+            onChange={(e) => setCashPart(e.target.value)} /></label>
+          <span className="split-plus">+</span>
+          <label>📱 UPI ₹<input type="number" min="0" placeholder="0" value={cashPart === '' ? '' : Math.max(0, paid - Number(cashPart || 0))}
+            onChange={(e) => setCashPart(e.target.value === '' ? '' : String(Math.max(0, paid - Number(e.target.value || 0))))} /></label>
+          <span className="split-eq">= {inr(paid)} paid</span>
+          <div className="muted small split-help">Type the cash amount — the rest is counted as UPI automatically (or type the UPI amount).</div>
+        </div>
+      )}
       <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>
       {!fullPaid && (
         <label>Amount paid (₹)<input type="number" min="0" step="0.01" value={f.paid_amount} onChange={set('paid_amount')} /></label>
@@ -697,6 +711,7 @@ function Receipt({ bill, c, shop, innerRef, small }) {
         {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
         <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
         {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
+        {bill.pay_mode === 'split' && <><div>Paid by</div><div>Cash {rs(bill.cash_part)} + UPI {rs(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0)))}</div></>}
       </div>
       {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
       <div className="r-end">
@@ -745,6 +760,7 @@ function ThermalReceipt({ bill, c, shop, shift = 0 }) {
         {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
         <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
         {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
+        {bill.pay_mode === 'split' && <div className="t-row"><span>Paid by</span><span>Cash {num(bill.cash_part)} + UPI {num(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0)))}</span></div>}
         <div className="t-hr" />
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
         {termsLines(shop?.terms).length > 0 && (

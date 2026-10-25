@@ -734,3 +734,10 @@ tr.cur-month td { background: #fff7e8; }
 .break-btn:hover { background: #fde4ec; }
 .break-btn span { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 999px; background: #8a1d45; color: #fff; font-size: 11px; }
 .break-table { width: 100%; }
+/* Cash & UPI both */
+.split-box { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px 14px; border: 1px solid #f1c4d3; background: #fff7fa; border-radius: 12px; }
+.split-box label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+.split-box input { width: 130px; }
+.split-plus { font-size: 20px; font-weight: 700; padding-bottom: 8px; color: #8a1d45; }
+.split-eq { padding-bottom: 9px; font-weight: 700; }
+.split-help { flex-basis: 100%; }

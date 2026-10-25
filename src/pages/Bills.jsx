@@ -41,6 +41,12 @@ export default function Bills({ user, openCustomer }) {
   const dayRows = rows && view === 'month' ? Object.entries(rows.reduce((g, b) => { const k = b.bill_date; (g[k] ||= { n: 0, total: 0, paid: 0, due: 0 }); g[k].n += 1; g[k].total += Number(b.amount || 0); g[k].paid += Number(b.paid_amount || 0); g[k].due += dueOf(b); return g; }, {})).sort((a, b) => b[0].localeCompare(a[0])) : [];
   const openDay = (d) => { setDay(d); setView('day'); };
   const sum = (k) => shown.reduce((s, b) => s + Number(b[k] || 0), 0);
+  // Cash / UPI / Card split of money collected (old bills without a mode count as cash)
+  const paidOf = (b) => Number(b.paid_amount || 0);
+  const cashOf = (b) => (b.pay_mode === 'split' ? Math.min(paidOf(b), Number(b.cash_part || 0)) : !b.pay_mode || b.pay_mode === 'cash' ? paidOf(b) : 0);
+  const cashIn = shown.reduce((t, b) => t + cashOf(b), 0);
+  const cardIn = shown.filter((b) => b.pay_mode === 'card').reduce((t, b) => t + paidOf(b), 0);
+  const upiIn = shown.reduce((t, b) => t + paidOf(b), 0) - cashIn - cardIn;
 
   return (
     <>
@@ -73,7 +79,7 @@ export default function Bills({ user, openCustomer }) {
         <>
           <div className="stats day-stats">
             <div className="stat day-total"><div className="stat-label">{view === 'day' ? `Sale · ${day === today() ? 'Today' : fmtDate(day)} (${dayName(day)})` : `Sale · ${monthLabel(month)}`}</div><div className="stat-value">{inr(sum('amount'))}</div><div className="stat-sub">{shown.length} bill{shown.length === 1 ? '' : 's'}{shown.length ? ` · avg ${inr(Math.round(sum('amount') / shown.length))}` : ''}</div></div>
-            <div className="stat"><div className="stat-label">Collected</div><div className="stat-value">{inr(sum('paid_amount'))}</div></div>
+            <div className="stat"><div className="stat-label">Collected</div><div className="stat-value">{inr(sum('paid_amount'))}</div><div className="stat-sub">💵 Cash {inr(cashIn)} · 📱 UPI {inr(upiIn)}{cardIn ? ` · 💳 Card ${inr(cardIn)}` : ''}</div></div>
             <div className={`stat ${shown.some((b) => dueOf(b) > 0) ? 'warn' : ''}`}><div className="stat-label">Due</div><div className="stat-value">{inr(shown.reduce((t, b) => t + dueOf(b), 0))}</div></div>
             <div className="stat"><div className="stat-label">Customers</div><div className="stat-value">{new Set(shown.map((b) => b.customer_id)).size}</div></div>
           </div>
@@ -107,7 +113,9 @@ export default function Bills({ user, openCustomer }) {
                       <td><button className="link strong" onClick={() => openCustomer(b.customer_id)}>{b.c?.name || 'Unknown'}</button></td>
                       <td className="hide-sm"><span className="muted small">{billNo(b)}</span> {itemsSummary(b.items) || '—'}</td>
                       <td className="num">{inr(b.amount)}</td>
-                      <td className="num hide-sm">{inr(b.paid_amount)}</td>
+                      <td className="num hide-sm">{inr(b.paid_amount)}{b.pay_mode === 'split'
+                        ? <div className="muted small">💵 {inr(b.cash_part)} + 📱 {inr(Math.max(0, Number(b.paid_amount || 0) - Number(b.cash_part || 0)))}</div>
+                        : b.pay_mode && b.pay_mode !== 'cash' ? <div className="muted small">{b.pay_mode === 'upi' ? '📱 UPI' : '💳 Card'}</div> : null}</td>
                       <td><StatusBadge status={b.payment_status} /></td>
                       <td className="row-actions">
                         <button className="link" onClick={() => setModal({ print: b })}>Print</button>
