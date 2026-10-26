@@ -742,3 +742,6 @@ tr.cur-month td { background: #fff7e8; }
 .split-eq { padding-bottom: 9px; font-weight: 700; }
 .split-help { flex-basis: 100%; }
 .split-due { color: #b42318; }
+.bill-search { display: flex; align-items: center; gap: 4px; }
+.bill-search input { width: 230px; }
+tr.search-hit td { background: #fff8e1; }

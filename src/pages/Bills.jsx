@@ -12,6 +12,9 @@ export default function Bills({ user, openCustomer }) {
   const [monthSel, setMonth] = useState(monthKey());
   const month = view === 'day' ? day.slice(0, 7) : monthSel;
   const [filter, setFilter] = useState('all');
+  // Search box: finds bills of ALL dates by amount (1500 or 1,500), customer name, mobile, item or bill number
+  const [q, setQ] = useState('');
+  const [allBills, setAllBills] = useState(null);
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
   const [modal, setModal] = useState(null);
@@ -33,11 +36,34 @@ export default function Bills({ user, openCustomer }) {
     })();
   }, [month, tick]);
 
-  const done = () => { setModal(null); setTick((t) => t + 1); };
+  const done = () => { setModal(null); setTick((t) => t + 1); setAllBills(null); };
+  const query = q.trim().toLowerCase();
+  const searching = query.length > 0;
+  useEffect(() => {
+    if (!searching || allBills) return;
+    let alive = true;
+    Promise.all([fetchAll(() => supabase.from('bills').select('*').order('bill_date', { ascending: false })), customerMap()])
+      .then(([bills, cmap]) => { if (alive) setAllBills(bills.map((b) => ({ ...b, c: cmap[b.customer_id] }))); })
+      .catch((e) => setErr(e));
+    return () => { alive = false; };
+  }, [searching, allBills]);
+  const digits = query.replace(/[₹,\s]/g, '');
+  const isNum = /^\d+(\.\d+)?$/.test(digits);
+  const plain = (n) => String(Math.round(Number(n || 0) * 100) / 100);
+  const matches = (b) => {
+    if (isNum) {
+      const nums = [b.amount, b.paid_amount, dueOf(b), b.cash_part].filter((x) => x != null).map(plain);
+      if (nums.some((n) => n.includes(digits))) return true;
+      if ((b.c?.phone || '').replace(/\D/g, '').includes(digits)) return true;
+    }
+    return [b.c?.name, b.c?.phone, b.items, billNo(b), b.notes].some((t) => (t || '').toLowerCase().includes(query));
+  };
+  const exact = (b) => isNum && plain(b.amount) === digits;
+  const found = searching && allBills ? allBills.filter(matches).sort((a, b) => exact(b) - exact(a) || b.bill_date.localeCompare(a.bill_date)) : [];
   // Day view: first customer of the day on top, last customer at the bottom
   const seq = (b) => b.created_at || '';
   const inView = rows ? (view === 'day' ? rows.filter((b) => b.bill_date === day).sort((a, b) => seq(a).localeCompare(seq(b)) || Number(a.bill_no || 0) - Number(b.bill_no || 0)) : rows) : [];
-  const shown = inView.filter((b) => filter === 'all' || (filter === 'due' ? dueOf(b) > 0 : b.payment_status === 'paid'));
+  const shown = searching ? found : inView.filter((b) => filter === 'all' || (filter === 'due' ? dueOf(b) > 0 : b.payment_status === 'paid'));
   const dayRows = rows && view === 'month' ? Object.entries(rows.reduce((g, b) => { const k = b.bill_date; (g[k] ||= { n: 0, total: 0, paid: 0, due: 0 }); g[k].n += 1; g[k].total += Number(b.amount || 0); g[k].paid += Number(b.paid_amount || 0); g[k].due += dueOf(b); return g; }, {})).sort((a, b) => b[0].localeCompare(a[0])) : [];
   const openDay = (d) => { setDay(d); setView('day'); };
   const sum = (k) => shown.reduce((s, b) => s + Number(b[k] || 0), 0);
@@ -65,6 +91,9 @@ export default function Bills({ user, openCustomer }) {
               {day !== today() && <button className="btn small" onClick={() => setDay(today())}>Today</button>}
             </div>
           ) : <MonthPicker value={monthSel} onChange={setMonth} />}
+          <div className="bill-search">
+            <input type="search" placeholder="🔍 Find bill: amount, name, mobile…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All bills</option>
             <option value="due">With dues</option>
@@ -75,7 +104,14 @@ export default function Bills({ user, openCustomer }) {
         </div>
       </div>
       <ErrorBox error={err} />
-      {!rows ? <Loading /> : (
+      {searching ? (
+        !allBills ? <Loading /> : (
+          <>
+            <h2 className="bills-h">🔍 {found.length} bill{found.length === 1 ? '' : 's'} found for “{q.trim()}” <span className="muted small">— all dates{isNum ? ' · exact amount first' : ''}</span></h2>
+            <BillTable shown={shown} sel={sel} setSel={setSel} openCustomer={openCustomer} setModal={setModal} hit={exact} />
+          </>
+        )
+      ) : !rows ? <Loading /> : (
         <>
           <div className="stats day-stats">
             <div className="stat day-total"><div className="stat-label">{view === 'day' ? `Sale · ${day === today() ? 'Today' : fmtDate(day)} (${dayName(day)})` : `Sale · ${monthLabel(month)}`}</div><div className="stat-value">{inr(sum('amount'))}</div><div className="stat-sub">{shown.length} bill{shown.length === 1 ? '' : 's'}{shown.length ? ` · avg ${inr(Math.round(sum('amount') / shown.length))}` : ''}</div></div>
@@ -101,34 +137,7 @@ export default function Bills({ user, openCustomer }) {
             </section>
           )}
           {view === 'month' && <h2 className="bills-h">All bills · {monthLabel(month)}</h2>}
-          <section className="card flush">
-            {shown.length === 0 ? <Empty>No bills to show.</Empty> : (
-              <table>
-                <thead><tr><th className="pick"><input type="checkbox" title="Select all" checked={shown.length > 0 && shown.every((b) => sel.includes(b.id))} onChange={(e) => setSel(e.target.checked ? shown.map((b) => b.id) : [])} /></th><th>Date</th><th>Customer</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num hide-sm">Paid</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  {shown.map((b) => (
-                    <tr key={b.id}>
-                      <td className="pick"><input type="checkbox" checked={sel.includes(b.id)} onChange={() => setSel((x) => (x.includes(b.id) ? x.filter((i) => i !== b.id) : [...x, b.id]))} /></td>
-                      <td>{fmtDate(b.bill_date)}</td>
-                      <td><button className="link strong" onClick={() => openCustomer(b.customer_id)}>{b.c?.name || 'Unknown'}</button></td>
-                      <td className="hide-sm"><span className="muted small">{billNo(b)}</span> {itemsSummary(b.items) || '—'}</td>
-                      <td className="num">{inr(b.amount)}</td>
-                      <td className="num hide-sm">{inr(b.paid_amount)}{b.pay_mode === 'split'
-                        ? <div className="muted small">💵 {inr(b.cash_part)} + 📱 {inr(Math.max(0, Number(b.paid_amount || 0) - Number(b.cash_part || 0)))}</div>
-                        : b.pay_mode && b.pay_mode !== 'cash' ? <div className="muted small">{b.pay_mode === 'upi' ? '📱 UPI' : '💳 Card'}</div> : null}</td>
-                      <td><StatusBadge status={b.payment_status} /></td>
-                      <td className="row-actions">
-                        <button className="link" onClick={() => setModal({ print: b })}>Print</button>
-                        <span className="row-wa"><ShareBill bill={b} customer={b.c} small /></span>
-                        <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
-                        <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
+          <BillTable shown={shown} sel={sel} setSel={setSel} openCustomer={openCustomer} setModal={setModal} />
         </>
       )}
       {modal === 'new' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
@@ -137,5 +146,38 @@ export default function Bills({ user, openCustomer }) {
       {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}
       {modal?.bill && <Modal title={`Edit bill · ${modal.bill.c?.name || ''}`} onClose={() => setModal(null)}><BillForm bill={modal.bill} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
     </>
+  );
+}
+
+function BillTable({ shown, sel, setSel, openCustomer, setModal, hit }) {
+  return (
+          <section className="card flush">
+      {shown.length === 0 ? <Empty>No bills to show.</Empty> : (
+        <table>
+          <thead><tr><th className="pick"><input type="checkbox" title="Select all" checked={shown.length > 0 && shown.every((b) => sel.includes(b.id))} onChange={(e) => setSel(e.target.checked ? shown.map((b) => b.id) : [])} /></th><th>Date</th><th>Customer</th><th className="hide-sm">Items</th><th className="num">Amount</th><th className="num hide-sm">Paid</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {shown.map((b) => (
+              <tr key={b.id} className={hit && hit(b) ? 'search-hit' : ''}>
+                <td className="pick"><input type="checkbox" checked={sel.includes(b.id)} onChange={() => setSel((x) => (x.includes(b.id) ? x.filter((i) => i !== b.id) : [...x, b.id]))} /></td>
+                <td>{fmtDate(b.bill_date)}</td>
+                <td><button className="link strong" onClick={() => openCustomer(b.customer_id)}>{b.c?.name || 'Unknown'}</button></td>
+                <td className="hide-sm"><span className="muted small">{billNo(b)}</span> {itemsSummary(b.items) || '—'}</td>
+                <td className="num">{inr(b.amount)}</td>
+                <td className="num hide-sm">{inr(b.paid_amount)}{b.pay_mode === 'split'
+                  ? <div className="muted small">💵 {inr(b.cash_part)} + 📱 {inr(Math.max(0, Number(b.paid_amount || 0) - Number(b.cash_part || 0)))}</div>
+                  : b.pay_mode && b.pay_mode !== 'cash' ? <div className="muted small">{b.pay_mode === 'upi' ? '📱 UPI' : '💳 Card'}</div> : null}</td>
+                <td><StatusBadge status={b.payment_status} /></td>
+                <td className="row-actions">
+                  <button className="link" onClick={() => setModal({ print: b })}>Print</button>
+                  <span className="row-wa"><ShareBill bill={b} customer={b.c} small /></span>
+                  <button className="link" onClick={() => setModal({ bill: b })}>Edit</button>
+                  <button className="link danger" onClick={() => setModal({ del: b })}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
