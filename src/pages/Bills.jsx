@@ -50,11 +50,15 @@ export default function Bills({ user, openCustomer }) {
   const digits = query.replace(/[₹,\s]/g, '');
   const isNum = /^\d+(\.\d+)?$/.test(digits);
   const plain = (n) => String(Math.round(Number(n || 0) * 100) / 100);
+  // A number finds ONLY bills where that exact amount appears: bill amount, paid, due, cash part or UPI part
+  // (5+ digits also match a customer's mobile number)
   const matches = (b) => {
     if (isNum) {
-      const nums = [b.amount, b.paid_amount, dueOf(b), b.cash_part].filter((x) => x != null).map(plain);
-      if (nums.some((n) => n.includes(digits))) return true;
-      if ((b.c?.phone || '').replace(/\D/g, '').includes(digits)) return true;
+      const paidAmt = Number(b.paid_amount || 0);
+      const nums = [b.amount, paidAmt, dueOf(b)];
+      if (b.pay_mode === 'split') nums.push(b.cash_part, Math.max(0, paidAmt - Number(b.cash_part || 0)));
+      if (nums.filter((x) => x != null && Number(x) > 0).map(plain).includes(plain(digits))) return true;
+      return digits.length >= 5 && (b.c?.phone || '').replace(/\D/g, '').includes(digits);
     }
     return [b.c?.name, b.c?.phone, b.items, billNo(b), b.notes].some((t) => (t || '').toLowerCase().includes(query));
   };
@@ -107,7 +111,7 @@ export default function Bills({ user, openCustomer }) {
       {searching ? (
         !allBills ? <Loading /> : (
           <>
-            <h2 className="bills-h">🔍 {found.length} bill{found.length === 1 ? '' : 's'} found for “{q.trim()}” <span className="muted small">— all dates{isNum ? ' · exact amount first' : ''}</span></h2>
+            <h2 className="bills-h">🔍 {found.length} bill{found.length === 1 ? '' : 's'} found for “{q.trim()}” <span className="muted small">— all dates{isNum ? ' · matching bill amount, paid or due' : ''}</span></h2>
             <BillTable shown={shown} sel={sel} setSel={setSel} openCustomer={openCustomer} setModal={setModal} hit={exact} />
           </>
         )
