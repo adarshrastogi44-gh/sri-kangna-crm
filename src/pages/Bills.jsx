@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { BillForm, DateInput, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
-import { billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthLabel, monthRange, today } from '../utils';
+import { payParts, billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthLabel, monthRange, today } from '../utils';
 
 const shiftDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
 const dayName = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
@@ -56,7 +56,7 @@ export default function Bills({ user, openCustomer }) {
     if (isNum) {
       const paidAmt = Number(b.paid_amount || 0);
       const nums = [b.amount, paidAmt, dueOf(b)];
-      if (b.pay_mode === 'split') nums.push(b.cash_part, Math.max(0, paidAmt - Number(b.cash_part || 0)));
+      if (b.pay_mode === 'split') { const pp = payParts(b); nums.push(pp.cash, pp.upi, pp.card); }
       if (nums.filter((x) => x != null && Number(x) > 0).map(plain).includes(plain(digits))) return true;
       return digits.length >= 5 && (b.c?.phone || '').replace(/\D/g, '').includes(digits);
     }
@@ -72,11 +72,9 @@ export default function Bills({ user, openCustomer }) {
   const openDay = (d) => { setDay(d); setView('day'); };
   const sum = (k) => shown.reduce((s, b) => s + Number(b[k] || 0), 0);
   // Cash / UPI / Card split of money collected (old bills without a mode count as cash)
-  const paidOf = (b) => Number(b.paid_amount || 0);
-  const cashOf = (b) => (b.pay_mode === 'split' ? Math.min(paidOf(b), Number(b.cash_part || 0)) : !b.pay_mode || b.pay_mode === 'cash' ? paidOf(b) : 0);
-  const cashIn = shown.reduce((t, b) => t + cashOf(b), 0);
-  const cardIn = shown.filter((b) => b.pay_mode === 'card').reduce((t, b) => t + paidOf(b), 0);
-  const upiIn = shown.reduce((t, b) => t + paidOf(b), 0) - cashIn - cardIn;
+  const cashIn = shown.reduce((t, b) => t + payParts(b).cash, 0);
+  const cardIn = shown.reduce((t, b) => t + payParts(b).card, 0);
+  const upiIn = shown.reduce((t, b) => t + payParts(b).upi, 0);
 
   return (
     <>
@@ -168,7 +166,7 @@ function BillTable({ shown, sel, setSel, openCustomer, setModal, hit }) {
                 <td className="hide-sm"><span className="muted small">{billNo(b)}</span> {itemsSummary(b.items) || '—'}</td>
                 <td className="num">{inr(b.amount)}</td>
                 <td className="num hide-sm">{inr(b.paid_amount)}{b.pay_mode === 'split'
-                  ? <div className="muted small">💵 {inr(b.cash_part)} + 📱 {inr(Math.max(0, Number(b.paid_amount || 0) - Number(b.cash_part || 0)))}</div>
+                  ? <div className="muted small">{(({ cash, upi, card }) => [cash && `💵 ${inr(cash)}`, upi && `📱 ${inr(upi)}`, card && `💳 ${inr(card)}`].filter(Boolean).join(' + '))(payParts(b))}</div>
                   : b.pay_mode && b.pay_mode !== 'cash' ? <div className="muted small">{b.pay_mode === 'upi' ? '📱 UPI' : '💳 Card'}</div> : null}</td>
                 <td><StatusBadge status={b.payment_status} /></td>
                 <td className="row-actions">

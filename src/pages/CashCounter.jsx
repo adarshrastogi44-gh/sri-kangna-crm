@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { DateInput, Empty, ErrorBox, Loading } from '../components';
-import { fetchAll, fmtDate, inr, today } from '../utils';
+import { fetchAll, fmtDate, inr, payParts, today } from '../utils';
 
 const shiftDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
 const startTs = (d) => new Date(`${d}T00:00:00`).toISOString();
 const tm = (ts) => new Date(ts).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
-// Cash part of a bill's payment: "Cash + UPI" bills use cash_part when given, otherwise nothing is assumed
-const cashOfBill = (b) => {
-  const mode = b.pay_mode || 'cash';
-  if (mode === 'cash') return Number(b.paid_amount || 0);
-  if (mode === 'split') return Number(b.cash_part || 0);
-  return 0;
-};
+// Cash part of a bill's payment (mixed bills: only the cash part)
+const cashOfBill = (b) => payParts(b).cash;
 
 export default function CashCounter() {
   const [day, setDay] = useState(today());
@@ -50,7 +45,7 @@ export default function CashCounter() {
 
   const sum = (list, f = (x) => Number(x.amount || 0)) => list.reduce((t, x) => t + f(x), 0);
   const cashSales = sum(d.bills, cashOfBill);
-  const upiSales = sum(d.bills.filter((b) => ['upi', 'card'].includes(b.pay_mode)), (b) => Number(b.paid_amount || 0)) + sum(d.bills.filter((b) => b.pay_mode === 'split'), (b) => Number(b.paid_amount || 0) - Number(b.cash_part || 0));
+  const upiSales = sum(d.bills, (b) => { const p = payParts(b); return p.upi + p.card; });
   const cashExp = d.exps.filter((e) => e.kind === 'expense' && (e.mode || 'cash') === 'cash');
   const deposits = d.exps.filter((e) => e.kind === 'deposit' && !e.party_entry_id);
   const partyDeposits = d.exps.filter((e) => e.kind === 'deposit' && e.party_entry_id);

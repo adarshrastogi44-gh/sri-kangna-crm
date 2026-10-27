@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -365,10 +365,12 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const [prodErr, setProdErr] = useState(null);
   const [pick, setPick] = useState({ q: '', id: '', qty: 1, rate: '', customName: '', customRate: '' });
   const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
-  const [payMode, setPayMode] = useState(bill?.pay_mode || 'cash');
+  // 'split' = Cash & UPI, 'split3' = Cash & UPI & Card (both saved as pay_mode 'split')
+  const [payMode, setPayMode] = useState(bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? 'split3' : bill?.pay_mode || 'cash');
   const [cashPart, setCashPart] = useState(bill?.cash_part ?? '');
   // Cash & UPI both: two separate boxes; amount paid = cash + UPI
-  const [upiPart, setUpiPart] = useState(bill?.pay_mode === 'split' ? String(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0))) : '');
+  const [upiPart, setUpiPart] = useState(bill?.pay_mode === 'split' ? String(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0) - Number(bill.card_part || 0))) : '');
+  const [cardPart, setCardPart] = useState(bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? String(bill.card_part) : '');
   const [upiTouched, setUpiTouched] = useState(bill?.pay_mode === 'split');
   const [logVisit, setLogVisit] = useState(!bill);
   const [saved, setSaved] = useState(null);
@@ -407,8 +409,9 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
   const maxRedeem = Math.max(0, Math.min(available || 0, Math.floor(gross)));
   const used = Math.max(0, Math.min(Math.floor(Number(redeem || 0)), maxRedeem));
   const amount = Math.max(0, gross - used);
-  const isSplit = payMode === 'split';
-  const paid = isSplit ? Number(cashPart || 0) + Number(upiPart || 0) : fullPaid ? amount : Number(f.paid_amount || 0);
+  const isSplit = payMode === 'split' || payMode === 'split3';
+  const withCard = payMode === 'split3';
+  const paid = isSplit ? Number(cashPart || 0) + Number(upiPart || 0) + (withCard ? Number(cardPart || 0) : 0) : fullPaid ? amount : Number(f.paid_amount || 0);
   const status = statusFor(amount, paid);
 
   const ql = pick.q.trim().toLowerCase();
@@ -456,11 +459,13 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
         payment_status: status,
         notes: f.notes,
       });
-      if (payMode === 'split') {
-        if (cashPart === '' && upiPart === '') throw new Error('Cash & UPI both: please type the cash and UPI amounts.');
+      if (isSplit) {
+        if (cashPart === '' && upiPart === '' && (!withCard || cardPart === '')) throw new Error('Please type the cash, UPI' + (withCard ? ' and card' : '') + ' amounts.');
       }
       row.pay_mode = payMode;
-      row.cash_part = payMode === 'split' ? Number(cashPart || 0) : null;
+      if (isSplit) row.pay_mode = 'split';
+      row.cash_part = isSplit ? Number(cashPart || 0) : null;
+      row.card_part = withCard ? Number(cardPart || 0) : null;
       if (redeemOk) row.points_redeemed = used;
       if (Number(redeem || 0) > used) throw new Error(`Only ${maxRedeem} points can be used on this bill.`);
       let result;
@@ -478,7 +483,12 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
             : await supabase.from('bills').insert({ ...data, created_by: user.id }).select().single();
           if (!res.error) return res.data;
           last = res.error;
-          if (/pay_mode|cash_part/i.test(res.error.message || '') && ('pay_mode' in r || 'cash_part' in r)) { delete r.pay_mode; delete r.cash_part; i -= 1; continue; } // column not added yet: retry without it
+          if (/card_part/i.test(res.error.message || '') && 'card_part' in r) {
+            // card_part column not added yet (run card-payment.sql): save without it — card amount is then counted as UPI
+            if (Number(r.card_part)) alert('To save the Card part separately, run card-payment.sql in Supabase → SQL Editor. This bill is saved, with card counted as UPI.');
+            delete r.card_part; i -= 1; continue;
+          }
+          if (/pay_mode|cash_part/i.test(res.error.message || '') && ('pay_mode' in r || 'cash_part' in r)) { delete r.pay_mode; delete r.cash_part; delete r.card_part; i -= 1; continue; } // column not added yet: retry without it
           if (!/payment_status/i.test(res.error.message || '')) break;
         }
         throw last;
@@ -594,24 +604,33 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       )}
       <div className="pay-mode-row">
         <span className="small"><b>Paid by</b></span>
-        {[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['card', '💳 Card'], ['split', '💵 + 📱 Cash & UPI both']].map(([k, l]) => (
+        {[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['card', '💳 Card'], ['split', '💵 + 📱 Cash & UPI'], ['split3', '💵 + 📱 + 💳 Cash & UPI & Card']].map(([k, l]) => (
           <button type="button" key={k} className={`chip ${payMode === k ? 'on' : ''}`} onClick={() => setPayMode(k)}>{l}</button>
         ))}
       </div>
-      {payMode === 'split' && (
+      {isSplit && (
         <div className="split-box">
           <label>💵 Cash ₹<input type="number" min="0" placeholder="0" value={cashPart} autoFocus
             onChange={(e) => {
               const v = e.target.value;
               setCashPart(v);
               // Fill UPI with the rest of the bill, until you type in the UPI box yourself
-              if (!upiTouched) setUpiPart(v === '' ? '' : String(Math.max(0, amount - Number(v || 0))));
+              if (!upiTouched) setUpiPart(v === '' ? '' : String(Math.max(0, amount - Number(v || 0) - (withCard ? Number(cardPart || 0) : 0))));
             }} /></label>
           <span className="split-plus">+</span>
           <label>📱 UPI ₹<input type="number" min="0" placeholder="0" value={upiPart}
             onChange={(e) => { setUpiPart(e.target.value); setUpiTouched(true); }} /></label>
+          {withCard && <>
+            <span className="split-plus">+</span>
+            <label>💳 Card ₹<input type="number" min="0" placeholder="0" value={cardPart}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCardPart(v);
+                if (!upiTouched) setUpiPart(String(Math.max(0, amount - Number(cashPart || 0) - Number(v || 0))));
+              }} /></label>
+          </>}
           <span className="split-eq">= {inr(paid)} paid{amount > 0 && paid < amount ? <span className="split-due"> · {inr(amount - paid)} due</span> : ''}</span>
-          <div className="muted small split-help">Type the cash amount — UPI fills in with the rest of the bill. You can change the UPI amount too.</div>
+          <div className="muted small split-help">{withCard ? 'Type the cash and card amounts — UPI fills in with the rest of the bill. You can change any box.' : 'Type the cash amount — UPI fills in with the rest of the bill. You can change the UPI amount too.'}</div>
         </div>
       )}
       {!isSplit && <label className="check"><input type="checkbox" checked={fullPaid} onChange={(e) => setFullPaid(e.target.checked)} /> Paid in full</label>}
@@ -719,7 +738,7 @@ function Receipt({ bill, c, shop, innerRef, small }) {
         {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
         <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
         {dueOf(bill) > 0 && <><div>Paid</div><div>{rs(bill.paid_amount)}</div><div><b>Balance due</b></div><div><b>{rs(dueOf(bill))}</b></div></>}
-        {bill.pay_mode === 'split' && <><div>Paid by</div><div>Cash {rs(bill.cash_part)} + UPI {rs(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0)))}</div></>}
+        {bill.pay_mode === 'split' && <><div>Paid by</div><div>{payPartsText(bill, rs)}</div></>}
       </div>
       {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="r-notes">Note: {bill.notes}</div>}
       <div className="r-end">
@@ -768,7 +787,7 @@ function ThermalReceipt({ bill, c, shop, shift = 0 }) {
         {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
         <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>
         {dueOf(bill) > 0 && <><div className="t-row"><span>Paid</span><span>{num(bill.paid_amount)}</span></div><div className="t-row"><b>Balance due</b><b>{num(dueOf(bill))}</b></div></>}
-        {bill.pay_mode === 'split' && <div className="t-row"><span>Paid by</span><span>Cash {num(bill.cash_part)} + UPI {num(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0)))}</span></div>}
+        {bill.pay_mode === 'split' && <div className="t-row"><span>Paid by</span><span>{payPartsText(bill, num)}</span></div>}
         <div className="t-hr" />
         {bill.notes && !/^Old bill no:/.test(bill.notes) && <div className="t-note">Note: {bill.notes}</div>}
         {termsLines(shop?.terms).length > 0 && (

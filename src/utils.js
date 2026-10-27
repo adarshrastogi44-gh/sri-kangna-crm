@@ -26,6 +26,22 @@ export const fmtDate = (s) => {
 };
 
 export const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+// Money received on a bill, split into cash / UPI / card.
+// Mixed bills (pay_mode 'split') keep cash_part and card_part; the rest of the paid amount is UPI.
+export function payParts(b) {
+  const paid = Number(b.paid_amount || 0);
+  const mode = b.pay_mode || 'cash';
+  if (mode === 'split') {
+    const cash = Math.min(paid, Number(b.cash_part || 0));
+    const card = Math.min(paid - cash, Number(b.card_part || 0));
+    return { cash, card, upi: Math.max(0, paid - cash - card) };
+  }
+  return { cash: mode === 'cash' ? paid : 0, upi: mode === 'upi' ? paid : 0, card: mode === 'card' ? paid : 0 };
+}
+export const payPartsText = (b, fmt) => {
+  const p = payParts(b);
+  return [p.cash && `Cash ${fmt(p.cash)}`, p.upi && `UPI ${fmt(p.upi)}`, p.card && `Card ${fmt(p.card)}`].filter(Boolean).join(' + ');
+};
 export const dueOf = (b) => Math.max(0, Number(b.amount || 0) - Number(b.paid_amount || 0));
 export const statusFor = (amount, paid) =>
   amount > 0 && paid >= amount ? 'paid' : paid > 0 ? 'partial' : 'unpaid';

@@ -12,3 +12,6 @@ create table if not exists public.cash_days (
 alter table public.cash_days enable row level security;
 drop policy if exists "Signed-in users manage cash days" on public.cash_days;
 create policy "Signed-in users manage cash days" on public.cash_days for all to authenticated using (true) with check (true);
+
+-- Card part for "Cash & UPI & Card" bills
+alter table public.bills add column if not exists card_part numeric;
