@@ -745,3 +745,6 @@ tr.cur-month td { background: #fff7e8; }
 .bill-search { display: flex; align-items: center; gap: 4px; }
 .bill-search input { width: 230px; }
 tr.search-hit td { background: #fff8e1; }
+/* Bookings: jewellery / chura switch */
+.booking-switch { margin-bottom: 14px; display: inline-flex; }
+.size-in { width: 110px; padding: 6px 10px; }

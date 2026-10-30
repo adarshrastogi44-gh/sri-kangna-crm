@@ -421,3 +421,41 @@ export function billText(bill, customer, shop) {
   if (shop?.bill_footer) out.push('', shop.bill_footer);
   return out.join('\n');
 }
+
+// ---------- Bookings (jewellery rent / chura): customer + advance bill ----------
+export const phone10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+
+// Find the customer with this mobile number, or add a new customer. Returns the customer (or null if no valid number).
+export async function ensureCustomer({ name, phone, address, note }) {
+  const p = phone10(phone);
+  if (p.length < 10 || !String(name || '').trim()) return null;
+  invalidateCustomers();
+  const list = await loadCustomers();
+  const hit = list.find((c) => phone10(c.phone) === p);
+  if (hit) return hit;
+  const { data, error } = await supabase.from('customers')
+    .insert({ name: String(name).trim(), phone: p, address: address || null, notes: note || null }).select().single();
+  if (error) throw error;
+  invalidateCustomers();
+  return data;
+}
+
+// Create (or update) the bill that records a booking's advance as money received on the booking date.
+export async function saveAdvanceBill({ billId, customerId, date, label, amount, mode, userId }) {
+  const amt = Math.max(0, Number(amount || 0));
+  if (!billId && !(amt > 0)) return null;
+  if (!customerId) return billId || null;
+  const row = {
+    customer_id: customerId, bill_date: date, items: formatItems([{ qty: 1, name: label, rate: amt }]),
+    amount: amt, paid_amount: amt, payment_status: amt > 0 ? 'paid' : 'unpaid', pay_mode: mode || 'cash', cash_part: null,
+    notes: amt > 0 ? 'Booking advance' : 'Booking advance removed',
+  };
+  const write = (r) => (billId
+    ? supabase.from('bills').update(r).eq('id', billId).select().single()
+    : supabase.from('bills').insert({ ...r, created_by: userId }).select().single());
+  let res = await write(row);
+  if (res.error && /pay_mode|cash_part/i.test(res.error.message || '')) { const { pay_mode, cash_part, ...rest } = row; res = await write(rest); }
+  if (res.error && /payment_status/i.test(res.error.message || '') && row.payment_status === 'unpaid') res = await write({ ...row, payment_status: 'pending' });
+  if (res.error) throw res.error;
+  return res.data.id;
+}

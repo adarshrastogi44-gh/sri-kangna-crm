@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { Badge, DateInput, Empty, ErrorBox, Loading } from '../components';
-import { addDays, fetchAll, inr, loadSettings, today } from '../utils';
+import { addDays, ensureCustomer, fetchAll, inr, loadSettings, saveAdvanceBill, today } from '../utils';
 
 // ---------- helpers ----------
 export const rentNo = (r) => `R-${String(r.booking_no || 0).padStart(3, '0')}`;
@@ -69,7 +69,7 @@ function ColourPicker({ value, onChange, extra = [] }) {
 const OPEN_KEY = 'sk-rent-open';
 export const openRentLater = (id) => { try { sessionStorage.setItem(OPEN_KEY, id); } catch { /* ignore */ } };
 
-export default function Rent() {
+export default function Rent({ user }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
   const [tick, setTick] = useState(0);
@@ -97,7 +97,7 @@ export default function Rent() {
 
   const nextNo = rows.reduce((mx, x) => Math.max(mx, Number(x.booking_no || 0)), 0) + 1;
   if (modal) {
-    return <RentEditor r={modal.id ? modal : null} nextNo={nextNo} onBack={() => setModal(null)} onSaved={(saved) => { setModal(null); refresh(); if (saved?.id) setOpenId(saved.id); }} />;
+    return <RentEditor r={modal.id ? modal : null} nextNo={nextNo} user={user} onBack={() => setModal(null)} onSaved={(saved) => { setModal(null); refresh(); if (saved?.id) setOpenId(saved.id); }} />;
   }
   if (openId) {
     const r = rows.find((x) => x.id === openId);
@@ -175,7 +175,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
     if (error) alert(error.message); else onChanged();
   };
   const del = async () => {
-    if (!window.confirm(`Delete booking ${rentNo(r)} for ${r.name}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete booking ${rentNo(r)} for ${r.name}? This cannot be undone. (The advance bill stays in Bills.)`)) return;
     const { error } = await supabase.from('rentals').delete().eq('id', r.id);
     if (error) alert(error.message); else onDeleted();
   };
@@ -225,7 +225,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
         <section className="card">
           <h2>Payment</h2>
           <Row k="Rate" v={inr(r.rate)} />
-          <Row k="Advance paid" v={inr(r.advance)} />
+          <Row k="Advance paid" v={`${inr(r.advance)}${Number(r.advance) > 0 ? ` · ${r.adv_mode === 'upi' ? 'UPI' : 'Cash'}` : ''}`} />
           <Row k="Balance" v={inr(rentBalance(r))} />
           <Row k="Security deposit (refundable)" v={inr(r.security)} />
         </section>
@@ -248,7 +248,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
 }
 
 // ---------- booking page: form on the left, live slip on the right (same as the trial) ----------
-function RentEditor({ r, nextNo, onBack, onSaved }) {
+function RentEditor({ r, nextNo, user, onBack, onSaved }) {
   const [vals, setVals] = useState(null);
   const [shop, setShop] = useState(null);
   const [printR, setPrintR] = useState(null);
@@ -262,7 +262,7 @@ function RentEditor({ r, nextNo, onBack, onSaved }) {
         <div><h1>{r ? `Edit booking ${rentNo(r)}` : 'New rent booking'}</h1><p>Fill the details — the customer slip updates on the right. Save to print it.</p></div>
       </div>
       <div className="rent-editor">
-        <section className="card"><RentForm r={r} onChange={setVals} onCancel={onBack} onSaved={(saved) => setPrintR(saved)} /></section>
+        <section className="card"><RentForm r={r} user={user} onChange={setVals} onCancel={onBack} onSaved={(saved) => setPrintR(saved)} /></section>
         <section className="card rent-preview">
           <h2>Slip preview (80 mm thermal)</h2>
           <div className="rent-preview-paper"><RentSlip r={preview} shop={shop} /></div>
@@ -275,13 +275,14 @@ function RentEditor({ r, nextNo, onBack, onSaved }) {
 }
 
 // ---------- form ----------
-function RentForm({ r, onSaved, onCancel, onChange }) {
+function RentForm({ r, user, onSaved, onCancel, onChange }) {
   const [f, setF] = useState({
     book_date: r?.book_date || today(), booked_for: r?.booked_for || '', name: r?.name || '', address: r?.address || '',
     mob1: r?.mob1 || '', mob2: r?.mob2 || '', set_code: r?.set_code || '', colour: r?.colour || '',
     dod: r?.dod || '', dod_time: r?.dod_time?.slice(0, 5) || '', dor: r?.dor || '', dor_time: r?.dor_time?.slice(0, 5) || '',
     rate: r?.rate ?? '', advance: r?.advance ?? '', security: r?.security ?? '', note: r?.note || '',
   });
+  const [advMode, setAdvMode] = useState(r?.adv_mode || 'cash');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -292,15 +293,37 @@ function RentForm({ r, onSaved, onCancel, onChange }) {
     if (!f.dod || !f.dor) { setErr({ message: 'Enter the delivery date (DOD) and return date (DOR).' }); return; }
     if (f.dor < f.dod) { setErr({ message: 'Return date cannot be before the delivery date.' }); return; }
     setBusy(true); setErr(null);
-    const row = {
-      ...f, name: f.name.trim(), set_code: f.set_code.trim().toUpperCase(),
-      rate: Number(f.rate || 0), advance: Number(f.advance || 0), security: Number(f.security || 0),
-      dod_time: f.dod_time || null, dor_time: f.dor_time || null,
-      ...Object.fromEntries(['booked_for', 'address', 'mob2', 'colour', 'note'].map((k) => [k, f[k].trim() || null])),
-    };
-    const res = r ? await supabase.from('rentals').update(row).eq('id', r.id).select().single() : await supabase.from('rentals').insert(row).select().single();
-    setBusy(false);
-    if (res.error) setErr(res.error); else onSaved(res.data);
+    try {
+      const row = {
+        ...f, name: f.name.trim(), set_code: f.set_code.trim().toUpperCase(),
+        rate: Number(f.rate || 0), advance: Number(f.advance || 0), security: Number(f.security || 0),
+        dod_time: f.dod_time || null, dor_time: f.dor_time || null,
+        ...Object.fromEntries(['booked_for', 'address', 'mob2', 'colour', 'note'].map((k) => [k, f[k].trim() || null])),
+      };
+      // 1) the mobile number is added to Customers (or the existing customer is used)
+      const cust = await ensureCustomer({ name: row.name, phone: row.mob1, address: row.address, note: 'From jewellery rent booking' });
+      const extra = { customer_id: cust?.id || r?.customer_id || null, adv_mode: advMode };
+      const write = (x) => (r ? supabase.from('rentals').update(x).eq('id', r.id).select().single() : supabase.from('rentals').insert(x).select().single());
+      let res = await write({ ...row, ...extra });
+      let linked = true;
+      if (res.error && /customer_id|adv_mode|bill_id/.test(res.error.message || '')) { linked = false; res = await write(row); }
+      if (res.error) throw res.error;
+      let saved = res.data;
+      // 2) the advance is recorded as a bill (money received) on the booking date
+      if (linked && (row.advance > 0 || saved.bill_id)) {
+        const billId = await saveAdvanceBill({
+          billId: saved.bill_id, customerId: extra.customer_id, date: row.book_date || today(),
+          label: `Jewellery rent advance ${rentNo(saved)} - set ${row.set_code}`, amount: row.advance, mode: advMode, userId: user?.id,
+        });
+        if (billId && billId !== saved.bill_id) {
+          const u = await supabase.from('rentals').update({ bill_id: billId }).eq('id', saved.id).select().single();
+          if (!u.error) saved = u.data;
+        }
+      }
+      if (!linked) alert('Booking saved. To add the customer and the advance bill automatically, run booking-setup.sql once in Supabase → SQL Editor.');
+      setBusy(false);
+      onSaved(saved);
+    } catch (x) { setBusy(false); setErr(x); }
   };
   return (
     <form className="form" onSubmit={submit}>
@@ -333,6 +356,7 @@ function RentForm({ r, onSaved, onCancel, onChange }) {
         <label>Advance (₹)<input type="number" min="0" value={f.advance} onChange={set('advance')} /></label>
         <label>Security (₹)<input type="number" min="0" value={f.security} onChange={set('security')} /></label>
       </div>
+      {Number(f.advance) > 0 && <AdvanceMode value={advMode} onChange={setAdvMode} />}
       <div className="rf-bal"><span>Balance to pay</span><b>{inr(bal)}</b></div>
       <label>Note<input value={f.note} onChange={set('note')} placeholder="e.g. with maang tikka and nath" /></label>
       <div className="actions" style={{ justifyContent: 'flex-end' }}>
@@ -340,6 +364,19 @@ function RentForm({ r, onSaved, onCancel, onChange }) {
         <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : r ? 'Update & print slip' : 'Save & print slip'}</button>
       </div>
     </form>
+  );
+}
+
+// Advance paid by Cash or UPI — saved as a bill on the booking date
+export function AdvanceMode({ value, onChange }) {
+  return (
+    <div className="pay-mode-row">
+      <span className="small"><b>Advance paid by</b></span>
+      {[['cash', '💵 Cash'], ['upi', '📱 UPI']].map(([k, l]) => (
+        <button type="button" key={k} className={`chip ${value === k ? 'on' : ''}`} onClick={() => onChange(k)}>{l}</button>
+      ))}
+      <span className="muted small">· added to Bills as money received</span>
+    </div>
   );
 }
 

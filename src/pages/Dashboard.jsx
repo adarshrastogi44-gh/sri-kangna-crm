@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
 import { d8, t12, rentNo, whenLabel, openRentLater } from './Rent';
+import { openBookingKind } from './Bookings';
 import { addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
 
 // ---------- small inline icons ----------
@@ -89,15 +90,16 @@ export default function Dashboard({ user, openCustomer, go }) {
   useEffect(() => {
     (async () => {
       try {
-        const [bills, visits, fups, cmap, products, rentals] = await Promise.all([
+        const [bills, visits, fups, cmap, products, rentals, churas] = await Promise.all([
           fetchAll(() => supabase.from('bills').select('*')),
           fetchAll(() => supabase.from('visits').select('customer_id,visit_date')),
           fetchAll(() => supabase.from('followups').select('*').or('status.is.null,status.neq.done').lte('due_date', today()).order('due_date')),
           customerMap(),
           supabase.from('products').select('name,category').then(({ data }) => data || []),
           supabase.from('rentals').select('*').in('status', ['booked', 'delivered']).then(({ data }) => data || [], () => []),
+          supabase.from('chura_bookings').select('*').in('status', ['booked', 'ready']).then(({ data }) => data || [], () => []),
         ]);
-        setD({ bills, visits, fups, cmap, rentals, catOf: Object.fromEntries(products.map((p) => [p.name, p.category || 'Other'])) });
+        setD({ bills, visits, fups, cmap, rentals, churas, catOf: Object.fromEntries(products.map((p) => [p.name, p.category || 'Other'])) });
       } catch (e) { setErr(e); }
     })();
   }, [tick]);
@@ -154,6 +156,7 @@ export default function Dashboard({ user, openCustomer, go }) {
 
     return {
       rentSoon: (d.rentals || []).filter((r) => r.status === 'booked' && r.dod >= t && r.dod <= addDays(2)).sort((a, b) => (a.dod + (a.dod_time || '')).localeCompare(b.dod + (b.dod_time || ''))),
+      churaSoon: (d.churas || []).filter((c) => c.give_date && c.give_date <= addDays(2)).sort((a, b) => (a.give_date + (a.give_time || '')).localeCompare(b.give_date + (b.give_time || ''))),
       rentDue: (d.rentals || []).filter((r) => r.status === 'delivered' && r.dor <= addDays(1)).sort((a, b) => a.dor.localeCompare(b.dor)),
       todaySales: d.bills.filter((b) => b.bill_date === t).reduce((x, b) => x + Number(b.amount || 0), 0),
       billsToday: d.bills.filter((b) => b.bill_date === t).length,
@@ -210,20 +213,28 @@ export default function Dashboard({ user, openCustomer, go }) {
         )}
       </section>
 
-      {(m.rentSoon.length > 0 || m.rentDue.length > 0) && (
+      {(m.rentSoon.length > 0 || m.rentDue.length > 0 || m.churaSoon.length > 0) && (
         <section className="card rent-alert">
-          <div className="card-head"><h2>💍 Jewellery rent — next 2 days</h2><button className="link small" onClick={() => go('rent')}>Open rent page →</button></div>
+          <div className="card-head"><h2>💍 Bookings — next 2 days</h2><button className="link small" onClick={() => go('rent')}>Open bookings →</button></div>
           <div className="rent-alert-grid">
             {m.rentSoon.map((r) => (
-              <button key={r.id} className="rent-chip" onClick={() => { openRentLater(r.id); go('rent'); }}>
+              <button key={r.id} className="rent-chip" onClick={() => { openBookingKind('jewellery'); openRentLater(r.id); go('rent'); }}>
                 <span className={`rc-when ${whenLabel(r.dod) === 'Today' ? 'today' : ''}`}>Delivery · {whenLabel(r.dod)}</span>
                 <b className="rc-set">{r.set_code}</b>
                 <span>{d8(r.dod)} {t12(r.dod_time)}</span>
                 <span className="muted small">{rentNo(r)} · {r.name}{r.mob1 ? ` · ${r.mob1}` : ''}</span>
               </button>
             ))}
+            {m.churaSoon.map((c) => (
+              <button key={c.id} className="rent-chip chura" onClick={() => { openBookingKind('chura'); go('rent'); }}>
+                <span className={`rc-when ${c.give_date <= t ? 'today' : ''}`}>Chura to give · {whenLabel(c.give_date)}</span>
+                <b className="rc-set">{c.chura_type || 'Chura'} · {c.size || ''}</b>
+                <span>{d8(c.give_date)} {t12(c.give_time)}</span>
+                <span className="muted small">C-{String(c.booking_no || 0).padStart(3, '0')} · {c.name}{c.mobile ? ` · ${c.mobile}` : ''}</span>
+              </button>
+            ))}
             {m.rentDue.map((r) => (
-              <button key={r.id} className="rent-chip due" onClick={() => { openRentLater(r.id); go('rent'); }}>
+              <button key={r.id} className="rent-chip due" onClick={() => { openBookingKind('jewellery'); openRentLater(r.id); go('rent'); }}>
                 <span className="rc-when">Return · {whenLabel(r.dor)}</span>
                 <b className="rc-set">{r.set_code}</b>
                 <span>{d8(r.dor)} {t12(r.dor_time)}</span>
