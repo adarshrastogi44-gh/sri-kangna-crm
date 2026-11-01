@@ -748,3 +748,14 @@ tr.search-hit td { background: #fff8e1; }
 /* Bookings: jewellery / chura switch */
 .booking-switch { margin-bottom: 14px; display: inline-flex; }
 .size-in { width: 110px; padding: 6px 10px; }
+/* Exchange / return on bills */
+.ret-toggle { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.ret-toggle .btn.on { background: #fff1e6; border-color: #f0a868; color: #9a4b00; }
+.ret-box { border: 1px dashed #f0a868; background: #fffaf3; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+.ret-title { font-weight: 700; color: #9a4b00; margin-bottom: 6px; }
+.ret-line { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; padding: 4px 0; border-top: 1px solid #f6dcc0; font-size: 14px; }
+.ret-line b { color: #9a4b00; }
+tr.ret-row td { color: #9a4b00; }
+.r-ret th { color: #9a4b00; }
+.t-ret-title { font-weight: 700; text-align: center; margin: 2px 0; }
+.ret-box .item-add { flex-wrap: wrap; } .ret-box .item-add input[list] { flex: 1 1 180px; min-width: 160px; }

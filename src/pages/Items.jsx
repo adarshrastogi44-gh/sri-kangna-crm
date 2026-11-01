@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Badge, Empty, ErrorBox, Loading, Modal } from '../components';
-import { customerMap, fetchAll, fmtDate, inr, loadProducts, monthKey, must, parseItems, today, addDays } from '../utils';
+import { customerMap, fetchAll, fmtDate, inr, loadProducts, monthKey, must, parseItems, today, addDays , isReturnLine, returnName } from '../utils';
 
 // Every sold line from all bills: { name, qty, rate, date, bill, customer }
 function soldLines(bills, cmap) {
@@ -9,7 +9,12 @@ function soldLines(bills, cmap) {
   bills.forEach((b) => {
     const { lines, ok } = parseItems(b.items);
     if (!ok) return;
-    lines.filter((l) => l.name !== 'Discount').forEach((l) => out.push({ key: l.name.trim().toLowerCase(), name: l.name, qty: l.qty, rate: l.rate, date: b.bill_date, bill: b, c: cmap[b.customer_id] }));
+    lines.filter((l) => l.name !== 'Discount').forEach((l) => {
+      // a returned item reduces the pcs sold of that item
+      const ret = isReturnLine(l);
+      const name = ret ? returnName(l) : l.name;
+      out.push({ key: name.trim().toLowerCase(), name, qty: ret ? -l.qty : l.qty, rate: ret ? -l.rate : l.rate, date: b.bill_date, bill: b, c: cmap[b.customer_id], ret });
+    });
   });
   return out;
 }
@@ -33,7 +38,7 @@ export default function Items() {
   }, [tick]);
   const from = periodStart(period);
   const inPeriod = (sales || []).filter((x) => !from || x.date >= from);
-  const sold = inPeriod.reduce((g, x) => { (g[x.key] ||= { pcs: 0, amt: 0, last: '' }); g[x.key].pcs += x.qty; g[x.key].amt += x.qty * x.rate; if (x.date > g[x.key].last) g[x.key].last = x.date; return g; }, {});
+  const sold = inPeriod.reduce((g, x) => { (g[x.key] ||= { pcs: 0, amt: 0, last: '' }); g[x.key].pcs += x.qty; g[x.key].amt += x.qty * x.rate; if (!x.ret && x.date > g[x.key].last) g[x.key].last = x.date; return g; }, {});
   const soldOf = (name) => sold[name.trim().toLowerCase()] || { pcs: 0, amt: 0, last: '' };
 
   const ql = q.trim().toLowerCase();
@@ -112,7 +117,7 @@ function ItemSales({ item, lines, period }) {
             {rows.map((x, i) => (
               <tr key={i}>
                 <td>{fmtDate(x.date)}</td>
-                <td><strong>{x.c?.name || 'Unknown'}</strong>{x.c?.phone && <div className="muted small">{x.c.phone}</div>}</td>
+                <td><strong>{x.c?.name || 'Unknown'}</strong>{x.ret && <span className="badge amber" style={{ marginLeft: 6 }}>↩ Returned</span>}{x.c?.phone && <div className="muted small">{x.c.phone}</div>}</td>
                 <td className="num"><b>{x.qty}</b></td>
                 <td className="num">{inr(x.rate)}</td>
                 <td className="num">{inr(x.qty * x.rate)}</td>

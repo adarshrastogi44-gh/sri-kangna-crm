@@ -136,7 +136,7 @@ export default function Dashboard({ user, openCustomer, go }) {
     d.bills.filter((b) => b.bill_date >= days[0]).forEach((b) => {
       const amt = Number(b.amount || 0);
       const { lines, ok } = parseItems(b.items);
-      const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+      const items = ok ? lines.filter((l) => l.name !== 'Discount' && !l.name.startsWith('Return: ')) : [];
       if (items.length) {
         const sub = items.reduce((s, l) => s + l.qty * l.rate, 0) || 1;
         items.forEach((l) => add(d.catOf[l.name] || 'Other', (amt * l.qty * l.rate) / sub));

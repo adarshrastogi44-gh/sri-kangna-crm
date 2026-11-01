@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { isReturnLine, returnName, RETURN_PREFIX, payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -359,7 +359,11 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
     notes: bill?.notes || '',
     freeItems: parsed.ok ? '' : bill?.items || '',
   });
-  const [lines, setLines] = useState(parsed.ok ? parsed.lines.filter((l) => l.name !== 'Discount') : []);
+  const [lines, setLines] = useState(parsed.ok ? parsed.lines.filter((l) => l.name !== 'Discount' && !isReturnLine(l)) : []);
+  // Exchange / return: items the customer gives back (only shown on the bill when used)
+  const [rets, setRets] = useState(parsed.ok ? parsed.lines.filter(isReturnLine).map((l) => ({ qty: l.qty, name: returnName(l), rate: -l.rate })) : []);
+  const [showRet, setShowRet] = useState(rets.length > 0);
+  const [rp, setRp] = useState({ name: '', qty: 1, rate: '' });
   const [discount, setDiscount] = useState(parsed.ok ? String(-(parsed.lines.find((l) => l.name === 'Discount')?.rate || 0) || '') : '');
   const [products, setProducts] = useState(null);
   const [prodErr, setProdErr] = useState(null);
@@ -404,8 +408,11 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
 
   const pickedProduct = (products || []).find((x) => x.id === pick.id);
   const subtotal = lines.reduce((s, l) => s + l.qty * l.rate, 0);
+  const retTotal = rets.reduce((s, l) => s + l.qty * l.rate, 0);
   const disc = Math.max(0, Number(discount || 0));
-  const gross = lines.length ? Math.max(0, subtotal - disc) : Number(f.amount || 0);
+  const hasLines = lines.length > 0 || rets.length > 0;
+  const gross = hasLines ? Math.max(0, subtotal - retTotal - disc) : Number(f.amount || 0);
+  const refund = hasLines ? Math.max(0, retTotal + disc - subtotal) : 0;
   const maxRedeem = Math.max(0, Math.min(available || 0, Math.floor(gross)));
   const used = Math.max(0, Math.min(Math.floor(Number(redeem || 0)), maxRedeem));
   const amount = Math.max(0, gross - used);
@@ -437,6 +444,12 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
     setPick({ ...pick, customName: '', customRate: '', qty: 1 });
     focusSel(itemRef);
   };
+  const addReturn = () => {
+    const name = rp.name.trim().replace(/[@\n]/g, ' ');
+    if (!name || rp.rate === '') return;
+    setRets([...rets, { name, qty: Math.max(1, Number(rp.qty || 1)), rate: Math.max(0, Number(rp.rate)) }]);
+    setRp({ name: '', qty: 1, rate: '' });
+  };
   const updLine = (i, k, v) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: Math.max(0, Number(v || 0)) } : l)));
 
   const submit = (e) => {
@@ -447,8 +460,8 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
       if (!f.bill_date) throw new Error('Please enter the bill date (dd/mm/yyyy).');
       if (!lines.length && !(amount > 0)) throw new Error('Add at least one item, or enter the bill amount.');
       if (paid > amount) throw new Error('Paid amount cannot be more than the bill amount.');
-      const itemsText = lines.length
-        ? formatItems(disc > 0 ? [...lines, { qty: 1, name: 'Discount', rate: -disc }] : lines)
+      const itemsText = hasLines
+        ? formatItems([...lines, ...rets.map((r) => ({ qty: r.qty, name: RETURN_PREFIX + r.name, rate: -r.rate })), ...(disc > 0 ? [{ qty: 1, name: 'Discount', rate: -disc }] : [])])
         : f.freeItems;
       const row = clean({
         customer_id: cid,
@@ -551,7 +564,32 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           </div>
         </details>
 
-        {lines.length > 0 && (
+        <div className="ret-toggle">
+          <button type="button" className={`btn small ${showRet ? 'on' : ''}`} onClick={() => setShowRet(!showRet || rets.length > 0)}>↩ Exchange / Return</button>
+          {!showRet && <span className="muted small">use only when the customer gives back an item</span>}
+        </div>
+        {showRet && (
+          <div className="ret-box">
+            <div className="ret-title">↩ Items returned by customer</div>
+            <div className="item-add">
+              <input list="ret-items" placeholder="Returned item name" value={rp.name} onChange={(e) => setRp({ ...rp, name: e.target.value })} />
+              <datalist id="ret-items">{(products || []).map((p) => <option key={p.id} value={p.name} />)}</datalist>
+              <label className="inline">Qty<input type="number" min="1" value={rp.qty} onChange={(e) => setRp({ ...rp, qty: e.target.value })} /></label>
+              <label className="inline">Price ₹<input className="price-in" type="number" min="0" step="0.01" placeholder="0" value={rp.rate} onChange={(e) => setRp({ ...rp, rate: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addReturn(); } }} /></label>
+              <button type="button" className="btn small" disabled={!rp.name.trim() || rp.rate === ''} onClick={addReturn}>+ Add return</button>
+              {rets.length === 0 && <button type="button" className="link small" onClick={() => setShowRet(false)}>Close</button>}
+            </div>
+            {rets.map((r, i) => (
+              <div className="ret-line" key={i}>
+                <span>↩ {r.name}</span><span>{r.qty} × {inr(r.rate)}</span><b>− {inr(r.qty * r.rate)}</b>
+                <button type="button" className="icon small" aria-label="Remove return" onClick={() => setRets(rets.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {hasLines && (
           <table className="lines">
             <thead><tr><th>Item</th><th className="num">Qty</th><th className="num">Rate</th><th className="num">Amount</th><th></th></tr></thead>
             <tbody>
@@ -564,19 +602,21 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
                   <td><button type="button" className="icon small" aria-label="Remove item" onClick={() => setLines(lines.filter((_, j) => j !== i))}>×</button></td>
                 </tr>
               ))}
-              <tr><td colSpan="3" className="num muted">Subtotal</td><td className="num">{inr(subtotal)}</td><td></td></tr>
+              <tr><td colSpan="3" className="num muted">{rets.length ? 'New items total' : 'Subtotal'}</td><td className="num">{inr(subtotal)}</td><td></td></tr>
+              {rets.length > 0 && <tr className="ret-row"><td colSpan="3" className="num">Less: returned items ({rets.reduce((t, r) => t + r.qty, 0)} pcs)</td><td className="num">− {inr(retTotal)}</td><td></td></tr>}
               <tr>
                 <td colSpan="3" className="num muted">Discount (₹)</td>
                 <td className="num"><input className="mini wide" type="number" min="0" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} /></td><td></td>
               </tr>
               {used > 0 && <tr><td colSpan="3" className="num muted">Loyalty points redeemed</td><td className="num">− {inr(used)}</td><td></td></tr>}
               <tr className="total"><td className="num" style={{ textAlign: 'left' }}>Total qty</td><td className="num">{lines.reduce((t, l) => t + Number(l.qty || 0), 0)}</td><td className="num">Total</td><td className="num">{inr(amount)}</td><td></td></tr>
+              {refund > 0 && <tr className="ret-row"><td colSpan="3" className="num"><b>Return is more than new items — give back to customer</b></td><td className="num"><b>{inr(refund)}</b></td><td></td></tr>}
             </tbody>
           </table>
         )}
       </div>
 
-      {lines.length === 0 && (
+      {!hasLines && (
         <div className="grid2">
           <label>Bill amount (₹) *<input type="number" min="0" step="0.01" value={f.amount} onChange={set('amount')} /></label>
           <label>Items (text)<input placeholder="Optional description" value={f.freeItems} onChange={set('freeItems')} /></label>
@@ -693,7 +733,9 @@ const longDate = (d) => (d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDate
 
 function Receipt({ bill, c, shop, innerRef, small }) {
   const { lines, ok } = parseItems(bill.items);
-  const items = lines.filter((l) => l.name !== 'Discount');
+  const items = lines.filter((l) => l.name !== 'Discount' && !isReturnLine(l));
+  const rets = ok ? lines.filter(isReturnLine) : [];
+  const retAmt = -rets.reduce((t, l) => t + l.qty * l.rate, 0);
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
   return (
     <div className={`receipt${small ? ' small' : ''}`} ref={innerRef}>
@@ -731,9 +773,18 @@ function Receipt({ bill, c, shop, innerRef, small }) {
           )}
         </tbody>
       </table>
+      {rets.length > 0 && (
+        <table className="r-table r-ret">
+          <thead><tr><th>EXCHANGE / RETURN</th><th className="num">QTY</th><th className="num">RATE</th><th className="num">{small ? 'AMT' : 'AMOUNT'}</th></tr></thead>
+          <tbody>{rets.map((l, i) => (
+            <tr key={i}><td>{returnName(l)}</td><td className="num">{l.qty}</td><td className="num">{small ? num(-l.rate) : rs(-l.rate)}</td><td className="num">− {small ? num(-l.qty * l.rate) : rs(-l.qty * l.rate)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
       <div className="r-totals">
         <div>Total qty</div><div><b>{(ok && items.length ? items : [{ qty: 1 }]).reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b></div>
-        {(disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
+        {rets.length > 0 && <><div>New items total</div><div>{rs(items.reduce((t, l) => t + l.qty * l.rate, 0))}</div><div>Less: returned items ({rets.reduce((t, l) => t + l.qty, 0)} pcs)</div><div>− {rs(retAmt)}</div></>}
+        {rets.length === 0 && (disc > 0 || redeemedOf(bill) > 0) && <><div>Subtotal</div><div>{rs(Number(bill.amount) + disc + redeemedOf(bill))}</div></>}
         {disc > 0 && <><div>Discount</div><div>− {rs(disc)}</div></>}
         {redeemedOf(bill) > 0 && <><div>Loyalty points redeemed</div><div>− {rs(redeemedOf(bill))}</div></>}
         <div className="r-grand-l">Total</div><div className="r-grand">{rs(bill.amount)}</div>
@@ -757,7 +808,9 @@ function Receipt({ bill, c, shop, innerRef, small }) {
 // 80 mm thermal roll receipt (72 mm printable), black & white.
 function ThermalReceipt({ bill, c, shop, shift = 0 }) {
   const { lines, ok } = parseItems(bill.items);
-  const items = ok ? lines.filter((l) => l.name !== 'Discount') : [];
+  const items = ok ? lines.filter((l) => l.name !== 'Discount' && !isReturnLine(l)) : [];
+  const rets = ok ? lines.filter(isReturnLine) : [];
+  const retAmt = -rets.reduce((t, l) => t + l.qty * l.rate, 0);
   const disc = -(lines.find((l) => l.name === 'Discount')?.rate || 0);
   const red = redeemedOf(bill);
   return (
@@ -780,9 +833,22 @@ function ThermalReceipt({ bill, c, shop, shift = 0 }) {
             <span className="t-name">{l.name}</span><span>{l.qty}</span><span>{num(l.rate)}</span><span>{num(l.qty * l.rate)}</span>
           </div>
         ))}
+        {rets.length > 0 && <>
+          <div className="t-hr" />
+          <div className="t-ret-title">EXCHANGE / RETURN</div>
+          {rets.map((l, i) => (
+            <div className="t-grid t-item" key={`r${i}`}>
+              <span className="t-name">{returnName(l)}</span><span>{l.qty}</span><span>{num(-l.rate)}</span><span>-{num(-l.qty * l.rate)}</span>
+            </div>
+          ))}
+        </>}
         <div className="t-hr" />
         <div className="t-row"><b>Total qty</b><b>{(items.length ? items : [{ qty: 1 }]).reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b></div>
-        {(disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
+        {rets.length > 0 && <>
+          <div className="t-row"><span>New items</span><span>{num(items.reduce((t, l) => t + l.qty * l.rate, 0))}</span></div>
+          <div className="t-row"><span>Less: returned ({rets.reduce((t, l) => t + l.qty, 0)} pcs)</span><span>− {num(retAmt)}</span></div>
+        </>}
+        {rets.length === 0 && (disc > 0 || red > 0) && <div className="t-row"><span>Subtotal</span><span>{num(Number(bill.amount) + disc + red)}</span></div>}
         {disc > 0 && <div className="t-row"><span>Discount</span><span>− {num(disc)}</span></div>}
         {red > 0 && <div className="t-row"><span>Points redeemed</span><span>− {num(red)}</span></div>}
         <div className="t-total"><span>TOTAL</span><span>Rs. {num(bill.amount)}</span></div>

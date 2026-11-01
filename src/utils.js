@@ -201,11 +201,15 @@ export function parseItems(text) {
   }
   return { lines, ok: true };
 }
+// Exchange / return lines are saved as "1 × Return: Item name @ -500"
+export const RETURN_PREFIX = 'Return: ';
+export const isReturnLine = (l) => String(l?.name || '').startsWith(RETURN_PREFIX);
+export const returnName = (l) => String(l?.name || '').slice(RETURN_PREFIX.length);
 export const formatItems = (lines) => lines.map((l) => `${l.qty} × ${l.name} @ ${l.rate}`).join('\n');
 export const itemsSummary = (text) => {
   const { lines, ok } = parseItems(text);
   if (!ok) return (text || '').split('\n').filter(Boolean).join(', ');
-  return lines.filter((l) => l.name !== 'Discount').map((l) => `${l.qty} × ${l.name}`).join(', ');
+  return lines.filter((l) => l.name !== 'Discount').map((l) => (isReturnLine(l) ? `↩ ${l.qty} × ${returnName(l)} returned` : `${l.qty} × ${l.name}`)).join(', ');
 };
 export const billNo = (b) => 'EST-' + String(b.id || '').replace(/-/g, '').slice(0, 6).toUpperCase();
 
