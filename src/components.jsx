@@ -351,15 +351,15 @@ export function VisitForm({ customerId, user, onSaved, onCancel }) {
 
 // ---------- Unsaved new bill is kept on this computer, so a page refresh does not lose it ----------
 const DRAFT_KEY = 'sk-bill-draft';
-export const getBillDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } };
-export const clearBillDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } };
+export const getBillDraft = () => { try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } };
+export const clearBillDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } };
 // Is there an unsaved bill that was being made on this screen? (from = 'bills' | 'dashboard' | 'customer:<id>')
-export const hasBillDraft = (from) => getBillDraft()?.from === from;
+export const hasBillDraft = (from) => Boolean(from) && getBillDraft()?.from === from;
 
 export function BillForm({ bill, customerId, user, onSaved, onCancel, draftFrom }) {
   const parsed = parseItems(bill?.items);
   const keepDraft = !bill && Boolean(draftFrom);
-  const [d0] = useState(() => { const x = keepDraft ? getBillDraft() : null; return x?.from === draftFrom ? x.s : null; });
+  const [d0] = useState(() => { const x = keepDraft ? getBillDraft() : null; return x && draftFrom && x.from === draftFrom ? x.s : null; });
   const [cid, setCid] = useState(d0?.cid ?? (bill?.customer_id || customerId || ''));
   const [f, setF] = useState(d0?.f ?? {
     bill_date: bill?.bill_date || today(),
@@ -394,7 +394,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel, draftFrom 
     if (!keepDraft || draftDone.current) return;
     const s = { cid, f, lines, rets, discount, fullPaid, payMode, cashPart, upiPart, cardPart, upiTouched, logVisit, redeem };
     const empty = !cid && !lines.length && !rets.length && !f.amount && !f.notes && !f.freeItems;
-    try { if (empty) clearBillDraft(); else localStorage.setItem(DRAFT_KEY, JSON.stringify({ from: draftFrom, at: Date.now(), s })); } catch { /* ignore */ }
+    try { if (empty) clearBillDraft(); else sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ from: draftFrom, at: Date.now(), s })); } catch { /* ignore */ }
   });
   // closed inside the CRM (×, Cancel, saved, or another page opened) → forget the draft. A page refresh does not run this.
   useEffect(() => { draftDone.current = false; return () => { if (keepDraft) { draftDone.current = true; clearBillDraft(); } }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
