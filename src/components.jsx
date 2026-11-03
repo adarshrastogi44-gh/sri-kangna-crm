@@ -349,36 +349,55 @@ export function VisitForm({ customerId, user, onSaved, onCancel }) {
   );
 }
 
-export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
+// ---------- Unsaved new bill is kept on this computer, so a page refresh does not lose it ----------
+const DRAFT_KEY = 'sk-bill-draft';
+export const getBillDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } };
+export const clearBillDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } };
+// Is there an unsaved bill that was being made on this screen? (from = 'bills' | 'dashboard' | 'customer:<id>')
+export const hasBillDraft = (from) => getBillDraft()?.from === from;
+
+export function BillForm({ bill, customerId, user, onSaved, onCancel, draftFrom }) {
   const parsed = parseItems(bill?.items);
-  const [cid, setCid] = useState(bill?.customer_id || customerId || '');
-  const [f, setF] = useState({
+  const keepDraft = !bill && Boolean(draftFrom);
+  const [d0] = useState(() => { const x = keepDraft ? getBillDraft() : null; return x?.from === draftFrom ? x.s : null; });
+  const [cid, setCid] = useState(d0?.cid ?? (bill?.customer_id || customerId || ''));
+  const [f, setF] = useState(d0?.f ?? {
     bill_date: bill?.bill_date || today(),
     amount: bill?.amount ?? '',
     paid_amount: bill?.paid_amount ?? '',
     notes: bill?.notes || '',
     freeItems: parsed.ok ? '' : bill?.items || '',
   });
-  const [lines, setLines] = useState(parsed.ok ? parsed.lines.filter((l) => l.name !== 'Discount' && !isReturnLine(l)) : []);
+  const [lines, setLines] = useState(d0?.lines ?? (parsed.ok ? parsed.lines.filter((l) => l.name !== 'Discount' && !isReturnLine(l)) : []));
   // Exchange / return: items the customer gives back (only shown on the bill when used)
-  const [rets, setRets] = useState(parsed.ok ? parsed.lines.filter(isReturnLine).map((l) => ({ qty: l.qty, name: returnName(l), rate: -l.rate })) : []);
+  const [rets, setRets] = useState(d0?.rets ?? (parsed.ok ? parsed.lines.filter(isReturnLine).map((l) => ({ qty: l.qty, name: returnName(l), rate: -l.rate })) : []));
   const [showRet, setShowRet] = useState(rets.length > 0);
   const [rp, setRp] = useState({ name: '', qty: 1, rate: '' });
-  const [discount, setDiscount] = useState(parsed.ok ? String(-(parsed.lines.find((l) => l.name === 'Discount')?.rate || 0) || '') : '');
+  const [discount, setDiscount] = useState(d0 ? d0.discount : parsed.ok ? String(-(parsed.lines.find((l) => l.name === 'Discount')?.rate || 0) || '') : '');
   const [products, setProducts] = useState(null);
   const [prodErr, setProdErr] = useState(null);
   const [pick, setPick] = useState({ q: '', id: '', qty: 1, rate: '', customName: '', customRate: '' });
-  const [fullPaid, setFullPaid] = useState(bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
+  const [fullPaid, setFullPaid] = useState(d0 ? d0.fullPaid : bill ? Number(bill.paid_amount || 0) >= Number(bill.amount || 0) : true);
   // 'split' = Cash & UPI, 'split3' = Cash & UPI & Card (both saved as pay_mode 'split')
-  const [payMode, setPayMode] = useState(bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? 'split3' : bill?.pay_mode || 'cash');
-  const [cashPart, setCashPart] = useState(bill?.cash_part ?? '');
+  const [payMode, setPayMode] = useState(d0 ? d0.payMode : bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? 'split3' : bill?.pay_mode || 'cash');
+  const [cashPart, setCashPart] = useState(d0 ? d0.cashPart : bill?.cash_part ?? '');
   // Cash & UPI both: two separate boxes; amount paid = cash + UPI
-  const [upiPart, setUpiPart] = useState(bill?.pay_mode === 'split' ? String(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0) - Number(bill.card_part || 0))) : '');
-  const [cardPart, setCardPart] = useState(bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? String(bill.card_part) : '');
-  const [upiTouched, setUpiTouched] = useState(bill?.pay_mode === 'split');
-  const [logVisit, setLogVisit] = useState(!bill);
+  const [upiPart, setUpiPart] = useState(d0 ? d0.upiPart : bill?.pay_mode === 'split' ? String(Math.max(0, Number(bill.paid_amount || 0) - Number(bill.cash_part || 0) - Number(bill.card_part || 0))) : '');
+  const [cardPart, setCardPart] = useState(d0 ? d0.cardPart : bill?.pay_mode === 'split' && Number(bill.card_part) > 0 ? String(bill.card_part) : '');
+  const [upiTouched, setUpiTouched] = useState(d0 ? d0.upiTouched : bill?.pay_mode === 'split');
+  const [logVisit, setLogVisit] = useState(d0 ? d0.logVisit : !bill);
   const [saved, setSaved] = useState(null);
-  const [redeem, setRedeem] = useState(bill ? String(redeemedOf(bill) || '') : '');
+  const [redeem, setRedeem] = useState(d0 ? d0.redeem : bill ? String(redeemedOf(bill) || '') : '');
+  // Keep the unsaved bill on this computer after every change; removed when the bill is saved or closed with × / Cancel
+  const draftDone = useRef(false);
+  useEffect(() => {
+    if (!keepDraft || draftDone.current) return;
+    const s = { cid, f, lines, rets, discount, fullPaid, payMode, cashPart, upiPart, cardPart, upiTouched, logVisit, redeem };
+    const empty = !cid && !lines.length && !rets.length && !f.amount && !f.notes && !f.freeItems;
+    try { if (empty) clearBillDraft(); else localStorage.setItem(DRAFT_KEY, JSON.stringify({ from: draftFrom, at: Date.now(), s })); } catch { /* ignore */ }
+  });
+  // closed inside the CRM (×, Cancel, saved, or another page opened) → forget the draft. A page refresh does not run this.
+  useEffect(() => { draftDone.current = false; return () => { if (keepDraft) { draftDone.current = true; clearBillDraft(); } }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [available, setAvailable] = useState(null);
   const [redeemOk, setRedeemOk] = useState(true);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -520,6 +539,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel }) {
           if (!existing.length) await insertVisits({ customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id });
         } catch (x) { visitNote = `Bill saved, but the visit could not be recorded: ${x.message}`; }
       }
+      if (keepDraft) { draftDone.current = true; clearBillDraft(); }
       setSaved({ ...result, _visitNote: visitNote });
     });
   };

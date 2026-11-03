@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { BillForm, DateInput, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
+import { hasBillDraft, BillForm, DateInput, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
 import { payParts, billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthLabel, monthRange, today } from '../utils';
 
 const shiftDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
@@ -17,7 +17,7 @@ export default function Bills({ user, openCustomer }) {
   const [allBills, setAllBills] = useState(null);
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(() => (hasBillDraft('bills') ? 'new' : null)); // reopen an unsaved bill after a refresh
   const [tick, setTick] = useState(0);
   const [sel, setSel] = useState([]);
 
@@ -142,7 +142,7 @@ export default function Bills({ user, openCustomer }) {
           <BillTable shown={shown} sel={sel} setSel={setSel} openCustomer={openCustomer} setModal={setModal} />
         </>
       )}
-      {modal === 'new' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal === 'new' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm draftFrom="bills" user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal?.del && <DeleteBillModal key={modal.del.id} bill={modal.del} customerName={modal.del.c?.name} onDeleted={done} onClose={() => setModal(null)} />}
       {modal?.sheet && <PrintSheet bills={modal.sheet} onClose={() => setModal(null)} />}
       {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}

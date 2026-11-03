@@ -50,9 +50,12 @@ const PAGES = [
 
 export default function App() {
   const [session, setSession] = useState(undefined);
-  const [page, setPage] = useState('dashboard');
-  const [customerId, setCustomerId] = useState(null);
-  const [back, setBack] = useState('customers');
+  // The open page is remembered, so a refresh (F5) stays on the same page
+  const [nav0] = useState(() => { try { return JSON.parse(localStorage.getItem('sk-nav') || 'null') || {}; } catch { return {}; } });
+  const [page, setPage] = useState(nav0.page || 'dashboard');
+  const [customerId, setCustomerId] = useState(nav0.customerId || null);
+  const [back, setBack] = useState(nav0.back || 'customers');
+  useEffect(() => { try { localStorage.setItem('sk-nav', JSON.stringify({ page, customerId, back })); } catch { /* ignore */ } }, [page, customerId, back]);
   const [resetting, setResetting] = useState(() => {
     try {
       // Coming back from the "Sign in" link in the reset email → ask for a new password

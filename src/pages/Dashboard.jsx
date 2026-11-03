@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
+import { hasBillDraft, Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
 import { d8, t12, rentNo, whenLabel, openRentLater } from './Rent';
 import { openBookingKind } from './Bookings';
 import { addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
@@ -81,7 +81,7 @@ function periodStart(p) {
 export default function Dashboard({ user, openCustomer, go }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(() => (hasBillDraft('dashboard') ? 'bill' : null));
   const [tick, setTick] = useState(0);
   const [period, setPeriod] = useState('today');
   const [lookup, setLookup] = useState('');
@@ -322,7 +322,7 @@ export default function Dashboard({ user, openCustomer, go }) {
       )}
       {modal === 'visit' && <Modal title="Record a visit" onClose={() => setModal(null)}><VisitForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal?.billFor && <Modal title="New bill" onClose={() => setModal(null)}><BillForm customerId={modal.billFor} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
-      {modal === 'bill' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal === 'bill' && <Modal title="New bill" onClose={() => setModal(null)}><BillForm draftFrom="dashboard" user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'customer' && (
         <Modal title="New customer" onClose={() => setModal(null)}>
           <CustomerForm onSaved={(c) => { invalidateCustomers(); setModal(null); openCustomer(c.id); }} onCancel={() => setModal(null)} />

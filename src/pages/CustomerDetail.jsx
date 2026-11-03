@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupActions, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
+import { hasBillDraft, Badge, BillForm, CustomerForm, DeleteBillModal, ShareBill, Empty, ErrorBox, FollowupActions, FollowupForm, Loading, Modal, PrintBill, StatusBadge, Tags, VisitForm, WhatsAppMenu } from '../components';
 import { billPoints, dueOf, fetchAll, fmtDate, inr, itemsSummary, must, pointsEarned, pointsFor, pointsTotal, pointsUsed, redeemedOf, waLink } from '../utils';
 
 export default function CustomerDetail({ id, user, onBack }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(() => (hasBillDraft(`customer:${id}`) ? 'bill' : null));
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -140,7 +140,7 @@ export default function CustomerDetail({ id, user, onBack }) {
       {modal?.fu && <Modal title="Edit follow-up" onClose={() => setModal(null)}><FollowupForm followup={modal.fu} customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'edit' && <Modal title="Edit customer" onClose={() => setModal(null)}><CustomerForm customer={c} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'visit' && <Modal title={`Visit · ${c.name}`} onClose={() => setModal(null)}><VisitForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
-      {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
+      {modal === 'bill' && <Modal title={`New bill · ${c.name}`} onClose={() => setModal(null)}><BillForm customerId={id} draftFrom={`customer:${id}`} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal === 'followup' && <Modal title={`Follow-up · ${c.name}`} onClose={() => setModal(null)}><FollowupForm customerId={id} user={user} onSaved={done} onCancel={() => setModal(null)} /></Modal>}
       {modal?.del && <DeleteBillModal key={modal.del.id} bill={modal.del} customerName={c.name} onDeleted={done} onClose={() => setModal(null)} />}
       {modal?.print && <PrintBill bill={modal.print} onClose={() => setModal(null)} />}
