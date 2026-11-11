@@ -175,11 +175,23 @@ export async function loadCustomers() {
   if (!customerCache) customerT = Date.now();
   if (!customerCache) customerCache = fetchAll(() => supabase.from('customers').select('*').order('name'));
   try {
-    return await customerCache;
+    const list = await customerCache;
+    lastCustomers = list;
+    return list;
   } catch (e) {
     customerCache = null;
+    if (lastCustomers) return lastCustomers; // no internet: use the list loaded earlier
     throw e;
   }
+}
+let lastCustomers = null;
+// One customer by id — works without internet if the customer list was loaded before
+export async function findCustomer(id) {
+  try {
+    const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
+    if (!error && data) return data;
+  } catch { /* offline */ }
+  return (lastCustomers || []).find((c) => c.id === id) || null;
 }
 export async function customerMap() {
   const list = await loadCustomers();
@@ -464,4 +476,53 @@ export async function saveAdvanceBill({ billId, customerId, date, label, amount,
   if (res.error && /payment_status/i.test(res.error.message || '') && row.payment_status === 'unpaid') res = await write({ ...row, payment_status: 'pending' });
   if (res.error) throw res.error;
   return res.data.id;
+}
+
+
+// ---------- Bills made without internet: kept on this computer and uploaded automatically ----------
+const OFFLINE_KEY = 'sk-offline-bills';
+export const isNetErr = (e) => (typeof navigator !== 'undefined' && navigator.onLine === false)
+  || /failed to fetch|networkerror|network request failed|load failed|err_internet|timed out|timeout|aborted|abort/i.test(String(e?.message || e || ''));
+export const offlineBills = () => { try { return JSON.parse(localStorage.getItem(OFFLINE_KEY) || '[]'); } catch { return []; } };
+const saveOffline = (list) => {
+  try { localStorage.setItem(OFFLINE_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  try { window.dispatchEvent(new Event('sk-offline-change')); } catch { /* ignore */ }
+};
+export const newId = () => (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => { const r = (Math.random() * 16) | 0; return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16); }));
+// item = { row: bill row WITH its own id, visit: visit row or null }
+export function queueOfflineBill(item) { saveOffline([...offlineBills(), { ...item, at: Date.now() }]); }
+
+let syncing = false;
+export async function syncOfflineBills() {
+  if (syncing) return { done: 0, left: offlineBills().length };
+  syncing = true;
+  let done = 0;
+  try {
+    for (const item of offlineBills()) {
+      let r = { ...item.row };
+      let res;
+      for (let i = 0; i < 6; i += 1) {
+        res = await supabase.from('bills').insert(r);
+        const msg = res.error?.message || '';
+        if (!res.error) break;
+        if (res.error.code === '23505' || /duplicate key/i.test(msg)) { res = { error: null }; break; } // already uploaded earlier
+        if (isNetErr(res.error)) break;
+        if (/card_part/i.test(msg) && 'card_part' in r) { delete r.card_part; continue; }
+        if (/pay_mode|cash_part/i.test(msg)) { delete r.pay_mode; delete r.cash_part; delete r.card_part; continue; }
+        if (/points_redeemed/i.test(msg)) { delete r.points_redeemed; continue; }
+        if (/payment_status/i.test(msg)) { r = { ...r, payment_status: r.payment_status === 'partial' ? 'pending' : r.payment_status === 'unpaid' ? 'pending' : r.payment_status }; if (i > 2) delete r.payment_status; continue; }
+        break;
+      }
+      if (res.error) { if (isNetErr(res.error)) break; continue; } // keep it for the next try
+      if (item.visit) {
+        try {
+          const ex = await supabase.from('visits').select('id').eq('customer_id', item.visit.customer_id).eq('visit_date', item.visit.visit_date).limit(1);
+          if (!ex.error && !(ex.data || []).length) await insertVisits(item.visit);
+        } catch { /* visit is not important enough to block */ }
+      }
+      saveOffline(offlineBills().filter((x) => x.row.id !== item.row.id));
+      done += 1;
+    }
+  } finally { syncing = false; }
+  return { done, left: offlineBills().length };
 }

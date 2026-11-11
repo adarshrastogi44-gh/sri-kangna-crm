@@ -762,3 +762,9 @@ tr.ret-row td { color: #9a4b00; }
 .charts-locked { width: 100%; text-align: center; padding: 22px; cursor: pointer; color: #7a5260; font-size: 15px; border: 1px dashed #e8b9c9; background: #fff8fb; }
 .charts-locked:hover { background: #fdeef4; }
 .lock-card-inline .pin-input { margin: 6px auto; display: block; }
+.day-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0 12px; }
+.day-filter .tabs { margin: 0; }
+/* No internet / bills waiting to upload */
+.offline-bar { position: sticky; top: 0; z-index: 30; margin: -4px 0 12px; padding: 10px 14px; border-radius: 10px; background: #fff4e0; border: 1px solid #f0c27a; color: #7a4a00; font-weight: 600; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.offline-bar.ok { background: #e7f6ec; border-color: #b7e3c6; color: #1a7f45; }
+.offline-note { background: #fff4e0; border: 1px solid #f0c27a; color: #7a4a00; border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 14px; }

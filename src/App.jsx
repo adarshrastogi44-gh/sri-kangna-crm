@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { warmUp, openWhatsApp } from './utils';
+import { warmUp, openWhatsApp, offlineBills, syncOfflineBills, clearDataCache } from './utils';
 import { supabase, configOk } from './supabase';
 import Login, { RESET_FLAG, SetNewPassword } from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -134,6 +134,7 @@ export default function App() {
         </button>
       </aside>
       <main>
+        <OfflineBar />
         {page === 'dashboard' && <Dashboard {...props} />}
         {page === 'customers' && <Customers {...props} />}
         {page === 'customer' && customerId && <CustomerDetail {...props} id={customerId} onBack={() => go(back)} />}
@@ -150,4 +151,37 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+// Shows when there is no internet, and uploads bills made offline as soon as the internet is back
+function OfflineBar() {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [waiting, setWaiting] = useState(() => offlineBills().length);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const sync = async () => {
+    if (!offlineBills().length) return;
+    setBusy(true);
+    try {
+      const r = await syncOfflineBills();
+      if (r.done) { clearDataCache(); setMsg(`✓ ${r.done} bill${r.done === 1 ? '' : 's'} made offline uploaded to the CRM.`); setTimeout(() => setMsg(''), 8000); }
+    } catch { /* try again later */ }
+    setWaiting(offlineBills().length);
+    setBusy(false);
+  };
+  useEffect(() => {
+    const up = () => { setOnline(true); sync(); };
+    const down = () => setOnline(false);
+    const change = () => setWaiting(offlineBills().length);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    window.addEventListener('sk-offline-change', change);
+    sync();
+    const t = setInterval(() => { if (offlineBills().length) sync(); }, 30000); // keep trying every 30 seconds
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); window.removeEventListener('sk-offline-change', change); clearInterval(t); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (msg) return <div className="offline-bar ok">{msg}</div>;
+  if (!online) return <div className="offline-bar">📶 No internet. You can still make bills — they are kept on this computer{waiting ? ` (${waiting} waiting)` : ''} and upload by themselves when the internet is back.</div>;
+  if (waiting) return <div className="offline-bar">⏳ {waiting} bill{waiting === 1 ? '' : 's'} made offline waiting to upload… <button className="btn small" disabled={busy} onClick={sync}>{busy ? 'Uploading…' : 'Upload now'}</button></div>;
+  return null;
 }

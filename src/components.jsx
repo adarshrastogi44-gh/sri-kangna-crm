@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { isBookingBill, isReturnLine, returnName, RETURN_PREFIX, payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { findCustomer, isNetErr, newId, queueOfflineBill, isBookingBill, isReturnLine, returnName, RETURN_PREFIX, payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -530,7 +530,18 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel, draftFrom 
         onSaved(result);
         return;
       }
-      result = await save(row);
+      // New bill gets its own id now, so if the internet drops mid-save it can be uploaded later without making a copy
+      row.id = newId();
+      try {
+        result = await save(row);
+      } catch (x) {
+        if (!isNetErr(x)) throw x;
+        // No internet: keep the bill on this computer; it uploads by itself when the internet is back
+        queueOfflineBill({ row: { ...row, created_by: user.id }, visit: logVisit ? { customer_id: cid, visit_date: f.bill_date, visit_type: 'Purchase', created_by: user.id } : null });
+        if (keepDraft) { draftDone.current = true; clearBillDraft(); }
+        setSaved({ ...row, _offline: true });
+        return;
+      }
       let visitNote = '';
       if (logVisit) {
         // The bill is already saved; a problem with the visit must not block it (avoids duplicate bills)
@@ -723,7 +734,7 @@ function BillSaved({ bill, onDone }) {
   const [balance, setBalance] = useState(null);
   useEffect(() => {
     customerPoints(bill.customer_id).then(setBalance).catch(() => {});
-    supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+    findCustomer(bill.customer_id).then(setC);
     loadSettings().then(setShop);
   }, [bill.customer_id]);
   const wa = c && shop && waSend(c.phone, billText(bill, c, shop));
@@ -731,7 +742,8 @@ function BillSaved({ bill, onDone }) {
   return (
     <div className="saved">
       <div className="saved-icon">✓</div>
-      <h3>Bill saved</h3>
+      <h3>{bill._offline ? 'Bill saved on this computer' : 'Bill saved'}</h3>
+      {bill._offline && <div className="offline-note">📶 No internet right now. This bill is kept safely and will upload to the CRM by itself when the internet is back. You can still print it.</div>}
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
       <p className="points-earned">★ {billPoints(bill) ? `+${billPoints(bill)} points earned` : (isBookingBill(bill) ? 'No points on booking advance' : 'No points on this bill (discount given)')}{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
@@ -912,7 +924,7 @@ export function PrintBill({ bill, onClose }) {
   const [shift, setShiftState] = useState(() => { try { return Number(localStorage.getItem('sk-thermal-shift')) || 0; } catch { return 0; } });
   const setShift = (v) => { const n = Math.max(-15, Math.min(15, v)); setShiftState(n); try { localStorage.setItem('sk-thermal-shift', String(n)); } catch { /* ignore */ } };
   useEffect(() => {
-    supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+    findCustomer(bill.customer_id).then(setC);
     loadSettings().then(setShop);
   }, [bill.customer_id]);
   useEffect(() => {
@@ -1133,7 +1145,7 @@ export function ShareBill({ bill, customer, small, receiptRef }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     loadSettings().then(setShop);
-    if (!customer) supabase.from('customers').select('*').eq('id', bill.customer_id).single().then(({ data }) => setC(data));
+    if (!customer) findCustomer(bill.customer_id).then(setC);
   }, [bill.customer_id, customer]);
   const link = c && shop && waSend(c.phone, billText(bill, c, shop));
   const shareImage = async () => {
