@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
+import { SalesEye, SalesGate } from '../salesLock';
 import { Badge, Empty, ErrorBox, Loading, MonthPicker } from '../components';
 import { addMonths, customerMap, downloadCSV, dueOf, fetchAll, fmtDate, inr, monthKey, monthLabel, monthRange } from '../utils';
 
@@ -90,6 +91,7 @@ export default function Reports({ openCustomer }) {
       <div className="page-head">
         <h1>Reports</h1>
         <div className="actions">
+          <SalesEye />
           <div className="tabs">
             <button className={tab === 'monthly' ? 'active' : ''} onClick={() => setTab('monthly')}>Monthly</button>
             <button className={tab === 'good' ? 'active' : ''} onClick={() => setTab('good')}>Good customers</button>
@@ -98,6 +100,7 @@ export default function Reports({ openCustomer }) {
           <MonthPicker value={month} onChange={setMonth} />
         </div>
       </div>
+      <SalesGate title="Reports show sale figures, so they are hidden">
       <ErrorBox error={err} />
       {!data ? <Loading /> : (
         <>
@@ -220,6 +223,7 @@ export default function Reports({ openCustomer }) {
           )}
         </>
       )}
+      </SalesGate>
     </>
   );
 }

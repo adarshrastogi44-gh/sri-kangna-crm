@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { PinInput, hasBillDraft, Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
+import { hasBillDraft, Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
 import { d8, t12, rentNo, whenLabel, openRentLater } from './Rent';
 import { openBookingKind } from './Bookings';
-import { checkStaffPin, hasStaffPin, addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
+import { askSalesPassword, lockSales, useSalesUnlocked } from '../salesLock';
+import { addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
 
 // ---------- small inline icons ----------
 const I = {
@@ -22,61 +23,10 @@ const Icon = ({ name, size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{I[name]}</svg>
 );
 
-// Sale figures are ALWAYS hidden when the dashboard opens. Showing them needs the password
-// (the same password as the Staff page). Once the password is right, the figures can be shown
-// until you leave the dashboard or refresh.
-let salesUnlocked = false;
-let askPassword = null; // set by <SalesLock> on the dashboard
+// Sale figures are hidden until the password is entered (shared lock for the whole CRM, see salesLock.jsx)
 function useHidden() {
-  const [hidden, setHidden] = useState(true);
-  const toggle = () => {
-    if (!hidden) { setHidden(true); return; }
-    if (salesUnlocked) { setHidden(false); return; }
-    askPassword?.(() => setHidden(false));
-  };
-  return [hidden, toggle];
-}
-
-function SalesLock() {
-  const [ask, setAsk] = useState(null); // callback to run after the right password
-  const [pin, setPin] = useState('');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [noPin, setNoPin] = useState(false);
-  useEffect(() => {
-    askPassword = (cb) => { setPin(''); setMsg(''); setNoPin(false); setAsk(() => cb); hasStaffPin().then((h) => setNoPin(!h)).catch((e) => setMsg(e.message)); };
-    return () => { askPassword = null; salesUnlocked = false; };
-  }, []);
-  if (!ask) return null;
-  const go = async (p = pin) => {
-    if (p.length !== 4 || busy) return;
-    setBusy(true); setMsg('');
-    try {
-      if (await checkStaffPin(p)) { salesUnlocked = true; const cb = ask; setAsk(null); cb(); }
-      else { setMsg('Wrong password. Try again.'); setPin(''); }
-    } catch (e) { setMsg(e.message || String(e)); setPin(''); }
-    setBusy(false);
-  };
-  return (
-    <Modal title="🔒 Password to see sales" onClose={() => setAsk(null)}>
-      {noPin ? (
-        <div className="form">
-          <p>No password is set yet. Open the <b>Staff</b> page once and set the 4-digit password there — the same password is used to see the sale figures.</p>
-          <div className="actions" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={() => setAsk(null)}>OK</button></div>
-        </div>
-      ) : (
-        <form className="form lock-card-inline" onSubmit={(e) => { e.preventDefault(); go(); }}>
-          <p className="muted small">Enter the 4-digit password (same as the Staff page) to see the sale amount.</p>
-          <PinInput value={pin} autoFocus onChange={(v) => { setPin(v); setMsg(''); if (v.length === 4) go(v); }} />
-          {msg && <div className="error-text">{msg}</div>}
-          <div className="actions" style={{ justifyContent: 'flex-end' }}>
-            <button type="button" className="btn" onClick={() => setAsk(null)}>Cancel</button>
-            <button className="btn primary" disabled={busy || pin.length !== 4}>{busy ? 'Checking…' : 'Show'}</button>
-          </div>
-        </form>
-      )}
-    </Modal>
-  );
+  const u = useSalesUnlocked();
+  return [!u, () => (u ? lockSales() : askSalesPassword())];
 }
 
 const Dots = () => <span className="dots" aria-label="Hidden">●●●●●●</span>;
@@ -247,7 +197,6 @@ export default function Dashboard({ user, openCustomer, go }) {
 
   return (
     <>
-      <SalesLock />
       <section className="dash-hero">
         <div className="hero-main">
           <div className="hero-date">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>

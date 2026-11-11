@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { hasBillDraft, BillForm, DateInput, DeleteBillModal, ShareBill, Empty, ErrorBox, Loading, Modal, MonthPicker, PrintBill, PrintSheet, StatusBadge } from '../components';
+import { Hidden, SalesEye, SalesGate } from '../salesLock';
 import { payParts, billNo, customerMap, dueOf, fetchAll, fmtDate, inr, itemsSummary, monthKey, monthLabel, monthRange, today } from '../utils';
 
 const shiftDay = (d, n) => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
@@ -96,6 +97,7 @@ export default function Bills({ user, openCustomer }) {
           <div className="bill-search">
             <input type="search" placeholder="🔍 Find bill: amount, name, mobile…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          <SalesEye />
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All bills</option>
             <option value="due">With dues</option>
@@ -116,12 +118,12 @@ export default function Bills({ user, openCustomer }) {
       ) : !rows ? <Loading /> : (
         <>
           <div className="stats day-stats">
-            <div className="stat day-total"><div className="stat-label">{view === 'day' ? `Sale · ${day === today() ? 'Today' : fmtDate(day)} (${dayName(day)})` : `Sale · ${monthLabel(month)}`}</div><div className="stat-value">{inr(sum('amount'))}</div><div className="stat-sub">{shown.length} bill{shown.length === 1 ? '' : 's'}{shown.length ? ` · avg ${inr(Math.round(sum('amount') / shown.length))}` : ''}</div></div>
-            <div className="stat"><div className="stat-label">Collected</div><div className="stat-value">{inr(sum('paid_amount'))}</div><div className="stat-sub">💵 Cash {inr(cashIn)} · 📱 UPI {inr(upiIn)}{cardIn ? ` · 💳 Card ${inr(cardIn)}` : ''}</div></div>
-            <div className={`stat ${shown.some((b) => dueOf(b) > 0) ? 'warn' : ''}`}><div className="stat-label">Due</div><div className="stat-value">{inr(shown.reduce((t, b) => t + dueOf(b), 0))}</div></div>
+            <div className="stat day-total"><div className="stat-label">{view === 'day' ? `Sale · ${day === today() ? 'Today' : fmtDate(day)} (${dayName(day)})` : `Sale · ${monthLabel(month)}`}</div><div className="stat-value"><Hidden>{inr(sum('amount'))}</Hidden></div><div className="stat-sub">{shown.length} bill{shown.length === 1 ? '' : 's'}{shown.length ? <> · avg <Hidden dots="●●●">{inr(Math.round(sum('amount') / shown.length))}</Hidden></> : ''}</div></div>
+            <div className="stat"><div className="stat-label">Collected</div><div className="stat-value"><Hidden>{inr(sum('paid_amount'))}</Hidden></div><div className="stat-sub"><Hidden dots="●●●">💵 Cash {inr(cashIn)} · 📱 UPI {inr(upiIn)}{cardIn ? ` · 💳 Card ${inr(cardIn)}` : ''}</Hidden></div></div>
+            <div className={`stat ${shown.some((b) => dueOf(b) > 0) ? 'warn' : ''}`}><div className="stat-label">Due</div><div className="stat-value"><Hidden>{inr(shown.reduce((t, b) => t + dueOf(b), 0))}</Hidden></div></div>
             <div className="stat"><div className="stat-label">Customers</div><div className="stat-value">{new Set(shown.map((b) => b.customer_id)).size}</div></div>
           </div>
-          {view === 'month' && dayRows.length > 0 && (
+          {view === 'month' && dayRows.length > 0 && <SalesGate title="Day-wise sale for the month is hidden">
             <section className="card flush">
               <h2 className="pad">Day-wise sale · {monthLabel(month)} <span className="muted small">— click a day to see its bills</span></h2>
               <table>
@@ -137,7 +139,7 @@ export default function Bills({ user, openCustomer }) {
                 </tbody>
               </table>
             </section>
-          )}
+          </SalesGate>}
           {view === 'month' && <h2 className="bills-h">All bills · {monthLabel(month)}</h2>}
           <BillTable shown={shown} sel={sel} setSel={setSel} openCustomer={openCustomer} setModal={setModal} />
         </>

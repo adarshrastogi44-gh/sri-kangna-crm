@@ -15,6 +15,7 @@ import Campaigns from './pages/Campaigns';
 import Staff from './pages/Staff';
 import Expenses from './pages/Expenses';
 import Bookings from './pages/Bookings';
+import { SalesLockModal } from './salesLock';
 
 const NAV_ICONS = {
   dashboard: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
@@ -135,6 +136,7 @@ export default function App() {
       </aside>
       <main>
         <OfflineBar />
+        <SalesLockModal />
         {page === 'dashboard' && <Dashboard {...props} />}
         {page === 'customers' && <Customers {...props} />}
         {page === 'customer' && customerId && <CustomerDetail {...props} id={customerId} onBack={() => go(back)} />}

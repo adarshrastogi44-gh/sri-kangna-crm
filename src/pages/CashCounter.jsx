@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
+import { SalesEye, SalesGate } from '../salesLock';
 import { DateInput, Empty, ErrorBox, Loading } from '../components';
 import { fetchAll, fmtDate, inr, payParts, today } from '../utils';
 
@@ -77,12 +78,14 @@ export default function CashCounter() {
       <div className="page-head">
         <h1>💵 Cash counter</h1>
         <div className="actions day-pick">
+          <SalesEye />
           <button className="btn small" onClick={() => setDay(shiftDay(day, -1))}>◀</button>
           <DateInput value={day} onChange={(v) => v && setDay(v)} />
           <button className="btn small" onClick={() => setDay(shiftDay(day, 1))} disabled={day >= today()}>▶</button>
           {day !== today() && <button className="btn small" onClick={() => setDay(today())}>Today</button>}
         </div>
       </div>
+      <SalesGate title="Cash counter shows cash sales, so it is hidden">
       {setupNeeded && <div className="notice warn-notice">One-time setup: run <code>cash-counter-setup.sql</code> in Supabase → SQL Editor so the CRM can save the opening cash and payment mode (Cash / UPI) on bills.</div>}
 
       <div className="cash-hero">
@@ -139,6 +142,7 @@ export default function CashCounter() {
         )}
       </section>
       <p className="muted small">Cash in counter = opening cash + cash sales − cash expenses − bank deposits − cash taken − cash paid to parties. Expenses paid by UPI / card / bank are not counted.</p>
+      </SalesGate>
     </>
   );
 }

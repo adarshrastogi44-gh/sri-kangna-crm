@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
+import { Hidden } from '../salesLock';
 import { Badge, Empty, ErrorBox, Loading, Modal } from '../components';
 import { customerMap, fetchAll, fmtDate, inr, loadProducts, monthKey, must, parseItems, today, addDays , isReturnLine, returnName } from '../utils';
 
@@ -77,7 +78,7 @@ export default function Items() {
                     <tr key={p.id} className="click" onClick={() => setOpenItem(p)}>
                       <td><strong>{p.name}</strong></td>
                       <td className="num"><b className="pcs">{soldOf(p.name).pcs}</b> <span className="muted small">pcs</span></td>
-                      <td className="num hide-sm">{inr(soldOf(p.name).amt)}</td>
+                      <td className="num hide-sm"><Hidden dots="●●●">{inr(soldOf(p.name).amt)}</Hidden></td>
                       <td className="hide-sm">{soldOf(p.name).last ? fmtDate(soldOf(p.name).last) : '—'}</td>
                       <td>{p.active === false ? <Badge>Hidden</Badge> : <Badge tone="green">Active</Badge>}</td>
                       <td className="row-actions" onClick={(e) => e.stopPropagation()}><button className="link" onClick={() => setEdit(p)}>Edit</button></td>
@@ -107,7 +108,7 @@ function ItemSales({ item, lines, period }) {
     <div className="item-sales">
       <div className="stats">
         <div className="stat"><div className="stat-label">Pcs sold · {period}</div><div className="stat-value">{pcs}</div></div>
-        <div className="stat"><div className="stat-label">Sale value</div><div className="stat-value">{inr(amt)}</div></div>
+        <div className="stat"><div className="stat-label">Sale value</div><div className="stat-value"><Hidden>{inr(amt)}</Hidden></div></div>
         <div className="stat"><div className="stat-label">Customers</div><div className="stat-value">{new Set(rows.map((x) => x.bill.customer_id)).size}</div></div>
       </div>
       {rows.length === 0 ? <Empty>Not sold {period === 'All time' ? 'yet' : 'in this period'}.</Empty> : (

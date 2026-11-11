@@ -768,3 +768,7 @@ tr.ret-row td { color: #9a4b00; }
 .offline-bar { position: sticky; top: 0; z-index: 30; margin: -4px 0 12px; padding: 10px 14px; border-radius: 10px; background: #fff4e0; border: 1px solid #f0c27a; color: #7a4a00; font-weight: 600; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .offline-bar.ok { background: #e7f6ec; border-color: #b7e3c6; color: #1a7f45; }
 .offline-note { background: #fff4e0; border: 1px solid #f0c27a; color: #7a4a00; border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 14px; }
+.hidden-fig { background: none; border: 0; padding: 0; color: inherit; font: inherit; letter-spacing: 2px; cursor: pointer; opacity: .7; }
+.hidden-fig:hover { opacity: 1; }
+.sales-eye { white-space: nowrap; }
+.stat-value .hidden-fig, .metric-value .hidden-fig { font-size: 16px; letter-spacing: 3px; } .stat-sub .hidden-fig { font-size: 10px; }
