@@ -759,3 +759,6 @@ tr.ret-row td { color: #9a4b00; }
 .r-ret th { color: #9a4b00; }
 .t-ret-title { font-weight: 700; text-align: center; margin: 2px 0; }
 .ret-box .item-add { flex-wrap: wrap; } .ret-box .item-add input[list] { flex: 1 1 180px; min-width: 160px; }
+.charts-locked { width: 100%; text-align: center; padding: 22px; cursor: pointer; color: #7a5260; font-size: 15px; border: 1px dashed #e8b9c9; background: #fff8fb; }
+.charts-locked:hover { background: #fdeef4; }
+.lock-card-inline .pin-input { margin: 6px auto; display: block; }

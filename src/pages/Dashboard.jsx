@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
-import { hasBillDraft, Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
+import { PinInput, hasBillDraft, Badge, CustomerPicker, Empty, ErrorBox, Loading, Modal, VisitForm, BillForm, CustomerForm, WhatsAppMenu } from '../components';
 import { d8, t12, rentNo, whenLabel, openRentLater } from './Rent';
 import { openBookingKind } from './Bookings';
-import { addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
+import { checkStaffPin, hasStaffPin, addDays, customerMap, daysUntil, fetchAll, fmtDate, inr, invalidateCustomers, parseItems, today } from '../utils';
 
 // ---------- small inline icons ----------
 const I = {
@@ -22,18 +22,67 @@ const Icon = ({ name, size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{I[name]}</svg>
 );
 
-// Hidden/visible preference for money values (remembered in this browser)
-function useHidden(key) {
-  const k = `sk-hide-${key}`;
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(k) !== '0'; } catch { return true; } });
-  const toggle = () => setHidden((h) => { try { localStorage.setItem(k, h ? '0' : '1'); } catch { /* ignore */ } return !h; });
+// Sale figures are ALWAYS hidden when the dashboard opens. Showing them needs the password
+// (the same password as the Staff page). Once the password is right, the figures can be shown
+// until you leave the dashboard or refresh.
+let salesUnlocked = false;
+let askPassword = null; // set by <SalesLock> on the dashboard
+function useHidden() {
+  const [hidden, setHidden] = useState(true);
+  const toggle = () => {
+    if (!hidden) { setHidden(true); return; }
+    if (salesUnlocked) { setHidden(false); return; }
+    askPassword?.(() => setHidden(false));
+  };
   return [hidden, toggle];
+}
+
+function SalesLock() {
+  const [ask, setAsk] = useState(null); // callback to run after the right password
+  const [pin, setPin] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [noPin, setNoPin] = useState(false);
+  useEffect(() => {
+    askPassword = (cb) => { setPin(''); setMsg(''); setNoPin(false); setAsk(() => cb); hasStaffPin().then((h) => setNoPin(!h)).catch((e) => setMsg(e.message)); };
+    return () => { askPassword = null; salesUnlocked = false; };
+  }, []);
+  if (!ask) return null;
+  const go = async (p = pin) => {
+    if (p.length !== 4 || busy) return;
+    setBusy(true); setMsg('');
+    try {
+      if (await checkStaffPin(p)) { salesUnlocked = true; const cb = ask; setAsk(null); cb(); }
+      else { setMsg('Wrong password. Try again.'); setPin(''); }
+    } catch (e) { setMsg(e.message || String(e)); setPin(''); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="🔒 Password to see sales" onClose={() => setAsk(null)}>
+      {noPin ? (
+        <div className="form">
+          <p>No password is set yet. Open the <b>Staff</b> page once and set the 4-digit password there — the same password is used to see the sale figures.</p>
+          <div className="actions" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={() => setAsk(null)}>OK</button></div>
+        </div>
+      ) : (
+        <form className="form lock-card-inline" onSubmit={(e) => { e.preventDefault(); go(); }}>
+          <p className="muted small">Enter the 4-digit password (same as the Staff page) to see the sale amount.</p>
+          <PinInput value={pin} autoFocus onChange={(v) => { setPin(v); setMsg(''); if (v.length === 4) go(v); }} />
+          {msg && <div className="error-text">{msg}</div>}
+          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={() => setAsk(null)}>Cancel</button>
+            <button className="btn primary" disabled={busy || pin.length !== 4}>{busy ? 'Checking…' : 'Show'}</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
 }
 
 const Dots = () => <span className="dots" aria-label="Hidden">●●●●●●</span>;
 
 function MetricCard({ label, value, icon, hideKey, children, onClick, tone = 'rose', hint }) {
-  const [hidden, toggle] = useHidden(hideKey || label);
+  const [hidden, toggle] = useHidden();
   const canHide = Boolean(hideKey);
   return (
     <div className={`metric tone-${tone} ${onClick ? 'clickable' : ''}`} onClick={onClick}>
@@ -56,13 +105,36 @@ function MetricCard({ label, value, icon, hideKey, children, onClick, tone = 'ro
 }
 
 function HeroStat({ label, value, hideKey, onClick }) {
-  const [hidden, toggle] = useHidden(hideKey || label);
+  const [hidden, toggle] = useHidden();
   return (
     <div className={`hero-stat ${onClick ? 'clickable' : ''}`} onClick={onClick}>
       <div className="hero-stat-label">{label}
         {hideKey && <button type="button" className="hero-eye" onClick={(e) => { e.stopPropagation(); toggle(); }} aria-label={hidden ? 'Show value' : 'Hide value'}><Icon name={hidden ? 'eyeOff' : 'eye'} size={15} /></button>}
       </div>
       <div className="hero-stat-value">{hideKey && hidden ? '• • • • •' : value}</div>
+    </div>
+  );
+}
+// Sales charts also show amounts, so they are behind the same password
+function SalesCharts({ m }) {
+  const [hidden, toggle] = useHidden();
+  if (hidden) {
+    return (
+      <button type="button" className="card charts-locked" onClick={toggle}>
+        🔒 Sales charts are hidden · <b>click and enter password to show</b>
+      </button>
+    );
+  }
+  return (
+    <div className="dash-charts">
+      <section className="card">
+        <div className="card-head"><h2>Sales — last 30 days</h2><span className="muted small"><button className="link small" onClick={toggle}>🔒 Hide</button></span></div>
+        <LineChart data={m.series} />
+      </section>
+      <section className="card">
+        <div className="card-head"><h2>Sales by category</h2><span className="muted small">Last 30 days</span></div>
+        {m.catRows.length === 0 ? <Empty>No sales in the last 30 days.</Empty> : <CategoryBars rows={m.catRows} />}
+      </section>
     </div>
   );
 }
@@ -175,6 +247,7 @@ export default function Dashboard({ user, openCustomer, go }) {
 
   return (
     <>
+      <SalesLock />
       <section className="dash-hero">
         <div className="hero-main">
           <div className="hero-date">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
@@ -262,16 +335,7 @@ export default function Dashboard({ user, openCustomer, go }) {
         <MetricCard label="Inactive Customers (30+ days)" value={m.inactive.length} icon="userX" tone="slate" hint="Tap to invite them back" onClick={() => listModal('Inactive customers (no visit in 30+ days)', m.inactive, 'collection')} />
       </div>
 
-      <div className="dash-charts">
-        <section className="card">
-          <div className="card-head"><h2>Sales — last 30 days</h2><span className="muted small">Hover the line to see each day</span></div>
-          <LineChart data={m.series} />
-        </section>
-        <section className="card">
-          <div className="card-head"><h2>Sales by category</h2><span className="muted small">Last 30 days</span></div>
-          {m.catRows.length === 0 ? <Empty>No sales in the last 30 days.</Empty> : <CategoryBars rows={m.catRows} />}
-        </section>
-      </div>
+<SalesCharts m={m} />
 
       <div className="cols">
         <section className="card">

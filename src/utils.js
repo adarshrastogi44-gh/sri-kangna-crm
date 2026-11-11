@@ -381,7 +381,9 @@ export const redeemedOf = (b) => Number(b.points_redeemed || 0);
 export const hasDiscount = (b) => /(^|\n)\s*\d+(\.\d+)?\s*[×x]\s*Discount\s*@/i.test(b.items || '');
 // A bill with a manual discount earns no points. Using loyalty points does NOT stop the bill earning points:
 // the bill earns 5% of the amount actually paid (after points used), for the next purchase.
-export const billPoints = (b) => (hasDiscount(b) ? 0 : pointsFor(b.amount));
+// Booking advances (jewellery rent / chura booking) earn NO loyalty points
+export const isBookingBill = (b) => /^Booking advance/i.test(b.notes || '') || /(Jewellery rent advance|Chura booking advance)/i.test(b.items || '');
+export const billPoints = (b) => (hasDiscount(b) || isBookingBill(b) ? 0 : pointsFor(b.amount));
 export const pointsEarned = (bills) => bills.reduce((s, b) => s + billPoints(b), 0);
 export const pointsUsed = (bills) => bills.reduce((s, b) => s + redeemedOf(b), 0);
 // Balance = points earned on all bills − points redeemed on bills (1 point = Rs. 1)

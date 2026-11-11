@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
-import { isReturnLine, returnName, RETURN_PREFIX, payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
+import { isBookingBill, isReturnLine, returnName, RETURN_PREFIX, payPartsText, openWhatsApp, customerMap, addDays, billNo, billPoints, billText, customerPoints, hasRedeemColumn, pointsFor, redeemedOf, termsLines, deleteBillWithPin, insertVisits, dueOf, fmtDate, formatItems, hasTagsColumn, invalidateCustomers, loadCustomers, loadProducts, loadSettings, must, parseItems, statusFor, TAG_PRESETS, today, inr, WA_TEMPLATES, waLink, waSend, waText } from './utils';
 
 export function Modal({ title, onClose, children }) {
   return createPortal(
@@ -706,7 +706,7 @@ export function BillForm({ bill, customerId, user, onSaved, onCancel, draftFrom 
       )}
       <ErrorBox error={error} />
       <div className="save-bar">
-        <span className="muted small">{lines.length > 0 && <><b>{lines.reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b> · </>}Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 ? 'no points (discount)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
+        <span className="muted small">{lines.length > 0 && <><b>{lines.reduce((t, l) => t + Number(l.qty || 0), 0)} pcs</b> · </>}Total <b>{inr(amount)}</b>{used > 0 && <> · <span className="pts">−{used} pts used</span></>}{amount > 0 && <> · <span className="pts">{disc > 0 ? 'no points (discount)' : lines.some((l) => /(Jewellery rent advance|Chura booking advance)/i.test(l.name)) ? 'no points (booking)' : `+${pointsFor(amount)} pts`}</span></>} · Press <kbd>F2</kbd> to save</span>
         <div className="form-actions">
           <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : bill ? 'Update bill (F2)' : 'Save bill (F2)'}</button>
@@ -733,7 +733,7 @@ function BillSaved({ bill, onDone }) {
       <div className="saved-icon">✓</div>
       <h3>Bill saved</h3>
       <p className="muted">{billNo(bill)} · {inr(bill.amount)}</p>
-      <p className="points-earned">★ {billPoints(bill) ? `+${billPoints(bill)} points earned` : 'No points on this bill (discount given)'}{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
+      <p className="points-earned">★ {billPoints(bill) ? `+${billPoints(bill)} points earned` : (isBookingBill(bill) ? 'No points on booking advance' : 'No points on this bill (discount given)')}{redeemedOf(bill) > 0 && <> · {redeemedOf(bill)} points used</>}{balance != null && <> · Balance <b>{balance}</b> points</>}</p>
       {bill._visitNote && <div className="error small">{bill._visitNote}</div>}
       <div className="actions center-row">
         <button className="btn" onClick={() => setPrinting(true)}>Print estimate</button>
