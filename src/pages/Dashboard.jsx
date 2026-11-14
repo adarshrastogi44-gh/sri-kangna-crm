@@ -249,7 +249,7 @@ export default function Dashboard({ user, openCustomer, go }) {
             ))}
             {m.churaSoon.map((c) => (
               <button key={c.id} className="rent-chip chura" onClick={() => { openBookingKind('chura'); go('rent'); }}>
-                <span className={`rc-when ${c.give_date <= t ? 'today' : ''}`}>Chura to give · {whenLabel(c.give_date)}</span>
+                <span className={`rc-when ${c.give_date <= today() ? 'today' : ''}`}>Chura to give · {whenLabel(c.give_date)}</span>
                 <b className="rc-set">{c.chura_type || 'Chura'} · {c.size || ''}</b>
                 <span>{d8(c.give_date)} {t12(c.give_time)}</span>
                 <span className="muted small">C-{String(c.booking_no || 0).padStart(3, '0')} · {c.name}{c.mobile ? ` · ${c.mobile}` : ''}</span>
