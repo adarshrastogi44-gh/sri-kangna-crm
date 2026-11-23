@@ -150,7 +150,7 @@ export default function Rent({ user }) {
                 <tr key={r.id} className="click" onClick={() => setOpenId(r.id)}>
                   <td><b>{rentNo(r)}</b><div className="muted small">{r.booked_for || ''}</div></td>
                   <td><strong>{r.name}</strong><div className="muted small">{r.mob1}</div></td>
-                  <td><b>{r.set_code}</b><div className="muted small">{r.colour || ''}</div></td>
+                  <td><b>{r.set_code}</b><div className="muted small">{r.colour || ''}{r.pieces ? ` · ${r.pieces} pcs` : ''}</div></td>
                   <td>{d8(r.dod)} <span className="muted small">{t12(r.dod_time)}</span>{r.status === 'booked' && daysTo(r.dod) >= 0 && daysTo(r.dod) <= 2 && <div><Badge tone="amber">{whenLabel(r.dod)}</Badge></div>}</td>
                   <td>{d8(r.dor)} <span className="muted small">{t12(r.dor_time)}</span></td>
                   <td className="num">{inr(rentBalance(r))}</td>
@@ -195,7 +195,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
       </div>
 
       <div className="rent-hero">
-        <div><span>Set code</span><b>{r.set_code}</b><small>{r.colour || ''}</small></div>
+        <div><span>Set code</span><b>{r.set_code}</b><small>{r.colour || ''}{r.pieces ? ` · ${r.pieces} pcs` : ''}</small></div>
         <div><span>Delivery (DOD)</span><b>{d8(r.dod)}</b><small>{t12(r.dod_time) || 'time not set'} · {whenLabel(r.dod)}</small></div>
         <div><span>Return (DOR)</span><b>{d8(r.dor)}</b><small>{t12(r.dor_time) || 'time not set'} · {whenLabel(r.dor)}</small></div>
         <div className="bal"><span>Balance</span><b>{inr(rentBalance(r))}</b><small>rate {inr(r.rate)} − advance {inr(r.advance)}</small></div>
@@ -209,7 +209,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
           <Row k="Mobile 1" v={r.mob1 && <a href={`tel:${r.mob1}`}>{r.mob1}</a>} />
           <Row k="Mobile 2" v={r.mob2 && <a href={`tel:${r.mob2}`}>{r.mob2}</a>} />
           {r.mob1 && <a className="btn wa-btn small" style={{ marginTop: 8 }} target="_blank" rel="noreferrer"
-            href={`https://wa.me/91${r.mob1.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hi ${r.name}, your jewellery booking ${rentNo(r)} (set ${r.set_code}) at Sri Kangna:\nDelivery: ${d8(r.dod)} ${t12(r.dod_time)}\nReturn: ${d8(r.dor)} ${t12(r.dor_time)}\nBalance: ${inr(rentBalance(r))} · Security: ${inr(r.security)}\nThank you!`)}`}>Send details on WhatsApp</a>}
+            href={`https://wa.me/91${r.mob1.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hi ${r.name}, your jewellery booking ${rentNo(r)} (set ${r.set_code}${r.pieces ? `, ${r.pieces} pcs` : ''}) at Sri Kangna:\nDelivery: ${d8(r.dod)} ${t12(r.dod_time)}\nReturn: ${d8(r.dor)} ${t12(r.dor_time)}\nBalance: ${inr(rentBalance(r))} · Security: ${inr(r.security)}\nThank you!`)}`}>Send details on WhatsApp</a>}
         </section>
         <section className="card">
           <h2>Booking</h2>
@@ -217,6 +217,7 @@ function RentDetail({ r, onBack, onChanged, onDeleted, onEdit }) {
           <Row k="Date of booking" v={d8(r.book_date)} />
           <Row k="Booked for" v={r.booked_for} />
           <Row k="Set code" v={r.set_code} />
+          <Row k="Pieces in the box" v={r.pieces ? `${r.pieces} pcs` : ''} />
           <Row k="Colour" v={r.colour} />
           <Row k="Note" v={r.note} />
         </section>
@@ -278,7 +279,7 @@ function RentEditor({ r, nextNo, user, onBack, onSaved }) {
 function RentForm({ r, user, onSaved, onCancel, onChange }) {
   const [f, setF] = useState({
     book_date: r?.book_date || today(), booked_for: r?.booked_for || '', name: r?.name || '', address: r?.address || '',
-    mob1: r?.mob1 || '', mob2: r?.mob2 || '', set_code: r?.set_code || '', colour: r?.colour || '',
+    mob1: r?.mob1 || '', mob2: r?.mob2 || '', set_code: r?.set_code || '', pieces: r?.pieces ?? '', colour: r?.colour || '',
     dod: r?.dod || '', dod_time: r?.dod_time?.slice(0, 5) || '', dor: r?.dor || '', dor_time: r?.dor_time?.slice(0, 5) || '',
     rate: r?.rate ?? '', advance: r?.advance ?? '', security: r?.security ?? '', note: r?.note || '',
   });
@@ -298,6 +299,7 @@ function RentForm({ r, user, onSaved, onCancel, onChange }) {
         ...f, name: f.name.trim(), set_code: f.set_code.trim().toUpperCase(),
         rate: Number(f.rate || 0), advance: Number(f.advance || 0), security: Number(f.security || 0),
         dod_time: f.dod_time || null, dor_time: f.dor_time || null,
+        pieces: f.pieces === '' || f.pieces == null ? null : Math.max(0, Math.round(Number(f.pieces))),
         ...Object.fromEntries(['booked_for', 'address', 'mob2', 'colour', 'note'].map((k) => [k, f[k].trim() || null])),
       };
       // 1) the mobile number is added to Customers (or the existing customer is used)
@@ -305,6 +307,8 @@ function RentForm({ r, user, onSaved, onCancel, onChange }) {
       const extra = { customer_id: cust?.id || r?.customer_id || null, adv_mode: advMode };
       const write = (x) => (r ? supabase.from('rentals').update(x).eq('id', r.id).select().single() : supabase.from('rentals').insert(x).select().single());
       let res = await write({ ...row, ...extra });
+      let piecesMissing = false;
+      if (res.error && /pieces/.test(res.error.message || '')) { piecesMissing = true; delete row.pieces; res = await write({ ...row, ...extra }); }
       let linked = true;
       if (res.error && /customer_id|adv_mode|bill_id/.test(res.error.message || '')) { linked = false; res = await write(row); }
       if (res.error) throw res.error;
@@ -320,6 +324,7 @@ function RentForm({ r, user, onSaved, onCancel, onChange }) {
           if (!u.error) saved = u.data;
         }
       }
+      if (piecesMissing) alert('Booking saved without the number of pieces. Run rent-pieces.sql once in Supabase → SQL Editor to save pieces.');
       if (!linked) alert('Booking saved. To add the customer and the advance bill automatically, run booking-setup.sql once in Supabase → SQL Editor.');
       setBusy(false);
       onSaved(saved);
@@ -341,7 +346,10 @@ function RentForm({ r, user, onSaved, onCancel, onChange }) {
         <label>Mobile no. 2<input value={f.mob2} onChange={set('mob2')} inputMode="numeric" maxLength={10} /></label>
       </div>
       <div className="rf-sec">Jewellery</div>
-      <label>Set code<input value={f.set_code} onChange={(e) => setF({ ...f, set_code: e.target.value.toUpperCase() })} required placeholder="e.g. BR-104" /></label>
+      <div className="grid2">
+        <label>Set code<input value={f.set_code} onChange={(e) => setF({ ...f, set_code: e.target.value.toUpperCase() })} required placeholder="e.g. BR-104" /></label>
+        <label>Pieces in the box<input type="number" min="0" step="1" value={f.pieces} onChange={set('pieces')} placeholder="e.g. 7" /></label>
+      </div>
       <div className="field"><span className="field-label">Colour {f.colour && <b className="colour-picked">· {f.colour}</b>}</span>
         <ColourPicker value={f.colour} onChange={(c) => setF({ ...f, colour: c })} extra={[r?.colour]} />
       </div>
@@ -416,6 +424,7 @@ export function RentSlip({ r, shop }) {
       <div><b>Mobile:</b> {r.mob1}{r.mob2 ? ` / ${r.mob2}` : ''}</div>
       <div className="t-hr" />
       <div className="t-row"><span><b>Set code:</b> {r.set_code}</span><span><b>Colour:</b> {r.colour || '—'}</span></div>
+      {r.pieces ? <div className="t-row"><b>Pieces in the box</b><b>{r.pieces} pcs</b></div> : null}
       {r.note && <div><b>Note:</b> {r.note}</div>}
       <div className="rs-box">
         <div className="t-row"><b>Delivery (DOD)</b><span>{d8(r.dod)} {t12(r.dod_time)}</span></div>
@@ -432,6 +441,7 @@ export function RentSlip({ r, shop }) {
         <li>Security is refunded after checking the set on return.</li>
         <li>Any damage or missing piece will be charged.</li>
         <li>Late return will be charged extra per day.</li>
+        <li>Booking amount will not be returned on cancellation.</li>
       </ol></div>
       <div className="rs-sign"><div>Customer</div><div>Sri Kangna</div></div>
       <div className="t-c t-foot">Thank you!</div>

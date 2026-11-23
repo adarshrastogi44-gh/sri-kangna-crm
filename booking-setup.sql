@@ -59,3 +59,6 @@ from public.customers c
 where r.customer_id is null
   and length(regexp_replace(coalesce(r.mob1, ''), '\D', '', 'g')) >= 10
   and right(regexp_replace(coalesce(c.phone, ''), '\D', '', 'g'), 10) = right(regexp_replace(r.mob1, '\D', '', 'g'), 10);
+
+-- 5) Pieces in the jewellery box (rent)
+alter table public.rentals add column if not exists pieces integer;
