@@ -772,3 +772,5 @@ tr.ret-row td { color: #9a4b00; }
 .hidden-fig:hover { opacity: 1; }
 .sales-eye { white-space: nowrap; }
 .stat-value .hidden-fig, .metric-value .hidden-fig { font-size: 16px; letter-spacing: 3px; } .stat-sub .hidden-fig { font-size: 10px; }
+.cust-due { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: #fdecec; border: 1px solid #f3b4b4; color: #a1271f; }
+.cust-due .small { color: #8a3b35; }

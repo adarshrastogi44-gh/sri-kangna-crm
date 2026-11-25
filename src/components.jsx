@@ -71,25 +71,37 @@ function FormButtons({ busy, onCancel, label = 'Save' }) {
   );
 }
 
-// Shows whether a customer is existing (with history) or new, with a quick "Add new customer" option
+// Shows whether a customer is existing (with history) or new — and any balance due from old bills
 function CustomerStatus({ customer }) {
   const [h, setH] = useState(null);
   useEffect(() => {
     let live = true;
-    supabase.from('bills').select('amount,bill_date').eq('customer_id', customer.id).then(({ data }) => {
+    supabase.from('bills').select('id,amount,paid_amount,bill_date').eq('customer_id', customer.id).then(({ data }) => {
       if (!live) return;
       const bills = data || [];
-      setH({ count: bills.length, total: bills.reduce((s, x) => s + Number(x.amount || 0), 0), last: bills.map((x) => x.bill_date).sort().pop() });
+      const dues = bills.filter((x) => dueOf(x) > 0).sort((x, y) => (x.bill_date || '').localeCompare(y.bill_date || ''));
+      setH({
+        count: bills.length, total: bills.reduce((s, x) => s + Number(x.amount || 0), 0), last: bills.map((x) => x.bill_date).sort().pop(),
+        dues, due: dues.reduce((s, x) => s + dueOf(x), 0),
+      });
     });
     return () => { live = false; };
   }, [customer.id]);
   const isNew = h && h.count === 0;
   return (
-    <span className={`cust-status ${isNew ? 'new' : 'old'}`}>
-      {h == null ? 'Checking…' : isNew
-        ? '✓ Existing customer · no purchases yet'
-        : `✓ Existing customer · ${h.count} bill${h.count === 1 ? '' : 's'} · ${inr(h.total)} · last ${fmtDate(h.last)}`}
-    </span>
+    <>
+      <span className={`cust-status ${isNew ? 'new' : 'old'}`}>
+        {h == null ? 'Checking…' : isNew
+          ? '✓ Existing customer · no purchases yet'
+          : `✓ Existing customer · ${h.count} bill${h.count === 1 ? '' : 's'} · ${inr(h.total)} · last ${fmtDate(h.last)}`}
+      </span>
+      {h && h.due > 0 && (
+        <div className="cust-due">
+          <b>⚠ Balance due: {inr(h.due)}</b> <span className="small">from {h.dues.length} old bill{h.dues.length === 1 ? '' : 's'}</span>
+          <div className="small">{h.dues.slice(-4).map((x) => `${fmtDate(x.bill_date)} · ${billNo(x)} · due ${inr(dueOf(x))}`).join('  |  ')}</div>
+        </div>
+      )}
+    </>
   );
 }
 
